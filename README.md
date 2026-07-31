@@ -65,4 +65,4 @@ Free-tier limits worth knowing: ~1 GB RAM, the app sleeps after 12 hours with no
 
 ## Dataset
 
-[Apartment Rent Data](https://www.kaggle.com/datasets/shashanks1202/apartment-rent-data) — loaded at runtime via `kagglehub`, not committed to the repo.
+[Apartment Rent Data](https://www.kaggle.com/datasets/shashanks1202/apartment-rent-data) — load_csv.py includes script that download the data into your pc and copied into the data folder.
