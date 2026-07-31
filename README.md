@@ -9,7 +9,7 @@ BMDS2003 Data Science — CRISP-DM project.
     **Linear Regression
     K-Nearest Neighbours Regressor
     Random Forest Regressor
-    Gradient Boosting Regressor**
+    Histogram Gradient Boosting Regressor**
 - To evaluate and compare the performance of the four models using RMSE, MAE, and R², and to identify the most accurate and reliable model for rental price prediction.
 - To deploy the best-performing model as a functional prototype that allows users to estimate apartment rental prices interactively.
 
