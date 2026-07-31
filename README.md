@@ -22,6 +22,11 @@ Cross Industry Standard Process for Data Mining (CRISP-DM) framework with Python
 Business Understanding -> Data Understanding -> Data Preparation -> Modelling -> Evaluation -> Deployment
 
 # Code:
+
+Before implementation setup environtment:
+python -m venv rent_env
+rent_env\Scripts\Activate.ps1  
+pip install -r requirements.txt
 - [Business Understanding & Data Understanding] Includes visualization for business & data understanding of the dataset
 - [Data Preparation] Includes data cleaning, data transformation and data outlier detection coding before modelling
 - [Modelling] Includes all models training setup and enhancements

@@ -1,0 +1,26 @@
+# Data (loaded via kagglehub at runtime — don't commit raw/cleaned CSVs)
+data/*.csv
+data/*.xlsx
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# OS/editor junk
+.DS_Store
+.vscode/*
+!.vscode/settings.json
+
+# Streamlit secrets (never commit API keys/tokens)
+.streamlit/secrets.toml
+
+# Large trained model files (train-on-startup pattern used instead — see app/streamlit_app.py)
+models/*.pkl
+models/*.joblib
