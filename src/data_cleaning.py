@@ -44,6 +44,13 @@ def clean(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     for col, fill_value in config.RECODE_MISSING.items():
         df[col] = df[col].fillna(fill_value)
 
+    # 3.2.4b — fix contradictory pets_allowed value: "Cats,Dogs,None" appears
+    # exactly once and is internally contradictory ("None" cannot coexist with
+    # "Cats,Dogs"), consistent with a single data-entry error rather than a
+    # real category. Recoded to "Not Specified" rather than dropped, since the
+    # bathrooms/bedrooms/price/etc. for that listing are otherwise valid.
+    df["pets_allowed"] = df["pets_allowed"].replace("Cats,Dogs,None", "Not Specified")
+
     # 3.2.5 — defensive type/whitespace cleanup
     for col in ["cityname", "state", "fee", "has_photo"]:
         df[col] = df[col].astype(str).str.strip()
