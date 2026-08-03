@@ -10,9 +10,57 @@ real effect on tree-based models (Random Forest, Gradient Boosting),
 which split on thresholds rather than magnitudes.
 """
 import pandas as pd
+from streamlit import columns
 
-OUTLIER_COLS = ["price", "square_feet"]
+OUTLIER_COLS = ["price", "square_feet", "bathrooms", "bedrooms"]  # all numeric features
 
+def audit_iqr(df: pd.DataFrame, columns: list, k: float = 1.5):
+    header = (
+        f"{'Variable':<15}"
+        f"{'Count':>8}"
+        f"{'Mean':>10}"
+        f"{'SD':>10}"
+        f"{'Min':>10}"
+        f"{'25%':>10}"
+        f"{'Median':>10}"
+        f"{'75%':>10}"
+        f"{'Max':>10}"
+        f"{'Lower':>12}"
+        f"{'Upper':>12}"
+        f"{'Flagged':>10}"
+    )
+
+    print(header)
+    print("-" * len(header))
+
+    for col in columns:
+        s = df[col].dropna()
+
+        q1 = s.quantile(0.25)
+        q2 = s.median()
+        q3 = s.quantile(0.75)
+
+        iqr = q3 - q1
+
+        lower = q1 - k * iqr
+        upper = q3 + k * iqr
+
+        flagged = ((s < lower) | (s > upper)).sum()
+
+        print(
+            f"{col:<15}"
+            f"{len(s):>8}"
+            f"{s.mean():>10.2f}"
+            f"{s.std():>10.2f}"
+            f"{s.min():>10.2f}"
+            f"{q1:>10.2f}"
+            f"{q2:>10.2f}"
+            f"{q3:>10.2f}"
+            f"{s.max():>10.2f}"
+            f"{lower:>12.2f}"
+            f"{upper:>12.2f}"
+            f"{flagged:>10}"
+        )
 
 def compute_iqr_bounds(df: pd.DataFrame, col: str, k: float = 1.5) -> tuple:
     q1, q3 = df[col].quantile([0.25, 0.75])

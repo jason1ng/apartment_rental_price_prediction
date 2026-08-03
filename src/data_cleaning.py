@@ -9,8 +9,8 @@ from src import config
 
 
 def load_raw(csv_path: str) -> pd.DataFrame:
-    """Load the raw apartment rent CSV (semicolon-delimited, latin-1 encoded)."""
-    return pd.read_csv(csv_path, sep=";", encoding="latin-1", low_memory=False)
+    """Load the raw apartment rent CSV (semicolon-delimited, cp1252 encoded)."""
+    return pd.read_csv(csv_path, sep=";", encoding="cp1252", low_memory=False)
 
 
 def clean(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
@@ -18,7 +18,7 @@ def clean(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     df = df.copy()
     n0 = len(df)
 
-    # 3.2.1 — remove true duplicate listings (matched on id, before dropping it)
+    # 3.2.1 — remove true duplicate listings
     df = df.drop_duplicates(subset=["id"], keep="first")
     if verbose:
         print(f"[3.2.1] Removed {n0 - len(df)} duplicate listings (matched on id)")
