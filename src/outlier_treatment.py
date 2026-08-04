@@ -13,6 +13,7 @@ import pandas as pd
 from streamlit import columns
 
 OUTLIER_COLS = ["price", "square_feet"]  # all numeric features
+PRICE_MAX_VALID = 20000
 
 def audit_iqr(df: pd.DataFrame, columns: list, k: float = 1.5):
     header = (
@@ -67,6 +68,24 @@ def compute_iqr_bounds(df: pd.DataFrame, col: str, k: float = 1.5) -> tuple:
     iqr = q3 - q1
     return q1 - k * iqr, q3 + k * iqr
 
+def remove_extreme_price_errors(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
+    """
+    Remove implausible rental listings with extremely high monthly prices.
+    These are treated as probable data-entry errors or listings outside the
+    intended residential apartment market.
+    """
+    df = df.copy()
+
+    n_before = len(df)
+    df = df[df["price"] <= PRICE_MAX_VALID]
+
+    if verbose:
+        print(
+            f"[3.3] Removed {n_before - len(df)} listings with "
+            f"price > ${PRICE_MAX_VALID:,}"
+        )
+
+    return df
 
 def treat_outliers(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     """Cap price and square_feet at their 1.5*IQR upper bound. Returns a new dataframe."""
