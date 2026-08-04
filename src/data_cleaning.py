@@ -55,14 +55,6 @@ def clean(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     for col in ["cityname", "state", "fee", "has_photo"]:
         df[col] = df[col].astype(str).str.strip()
 
-    # 3.2.6 — bedrooms cast to int: verified zero genuine fractional values
-    # (all real listings are whole numbers 0-9; it was only float64 because
-    # pandas upcasts int columns containing NaN). bathrooms is deliberately
-    # LEFT as float — 5.60% of listings carry a real half-bath value (e.g.
-    # 1.5), a standard real-estate convention meaningfully distinct from a
-    # plain full-bath count, so truncating it would lose real information.
-    df["bedrooms"] = df["bedrooms"].astype(int)
-
     if verbose:
         print(f"\nFinal shape: {df.shape}  (kept {len(df)/n0:.1%} of raw rows)")
         print("Missing values remaining:\n", df.isnull().sum())
