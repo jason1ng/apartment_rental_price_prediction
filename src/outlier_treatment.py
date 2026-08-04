@@ -12,7 +12,7 @@ which split on thresholds rather than magnitudes.
 import pandas as pd
 from streamlit import columns
 
-OUTLIER_COLS = ["price", "square_feet", "bathrooms", "bedrooms"]  # all numeric features
+OUTLIER_COLS = ["price", "square_feet"]  # all numeric features
 
 def audit_iqr(df: pd.DataFrame, columns: list, k: float = 1.5):
     header = (
