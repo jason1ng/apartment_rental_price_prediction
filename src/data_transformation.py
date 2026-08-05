@@ -16,10 +16,9 @@ TOP_AMENITIES = [
     "Clubhouse", "Dishwasher", "AC", "Fireplace", "Refrigerator",
 ]
 
-# Cities with at least this many listings keep their own category;
-# everything below is bucketed as "Other". 300 was chosen empirically:
-# ~60 categories (comparable to state's 51), covering ~40% of listings
-# under their real city identity.
+# Cities with enough observations keep their own category;
+# less frequent cities are grouped into "Other" to control
+# one-hot encoding dimensionality.
 CITY_FREQUENCY_THRESHOLD = 300
 
 LOW_CARD_CATEGORICAL = ["state", "fee", "has_photo", "city_category"]
@@ -74,14 +73,6 @@ def engineer_room_density(df: pd.DataFrame) -> pd.DataFrame:
 def encode_city(df: pd.DataFrame, train_df: pd.DataFrame = None) -> pd.DataFrame:
     """city_category: city name for cities with >= CITY_FREQUENCY_THRESHOLD listings,
     else "Other" — one-hot encoded downstream.
-
-    A separate city_frequency (raw listing count) feature was considered but
-    REJECTED: 91.4% of listings in this dataset come from a single source
-    (RentDigs.com), so listing count per city is confounded with that
-    source's geographic scraping coverage, not purely with true city size or
-    rental market activity. city_category avoids this by only using the
-    identity of large-sample cities, not treating the count itself as a
-    predictive magnitude.
 
     Pass train_df when transforming validation/test data so the kept-city
     list is learned from training data only (no leakage).

@@ -1,12 +1,12 @@
 """
 Section 3.5 Final Prepared Dataset.
 
-Runs the full 3.2 -> 3.4 -> 3.3 pipeline in order and writes the result
+Runs the full 3.2 -> 3.3 -> 3.4 pipeline in order and writes the result
 to data/apartments_prepared.csv, ready for the 80:20 train-test split
 in Modelling (Section 4.0).
 
-Order matters: outlier treatment (3.4) is applied to price/square_feet
-BEFORE transformation (3.3) engineers amenity_count/city_frequency,
+Order matters: outlier treatment (3.3) is applied to price/square_feet
+BEFORE transformation (3.4) engineers amenity_count/city_frequency,
 so those engineered features are computed from the same capped values
 the models will actually train on.
 """

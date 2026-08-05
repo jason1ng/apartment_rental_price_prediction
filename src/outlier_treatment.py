@@ -87,7 +87,7 @@ def remove_extreme_price_errors(df: pd.DataFrame, verbose: bool = True) -> pd.Da
 
     return df
 
-def treat_outliers(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
+def winsorize(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     """Cap price and square_feet at their 1.5*IQR upper bound. Returns a new dataframe."""
     df = df.copy()
 
@@ -104,4 +104,11 @@ def treat_outliers(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
             print(f"[3.4] {col}: capped {n_flagged} rows ({n_flagged/len(df):.2%}) "
                   f"above {upper:,.0f} (IQR upper bound)")
 
+    return df
+
+def treat_outliers(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
+    """Remove extreme price errors, then winsorize price and square_feet."""
+    df = df.copy()
+    df = remove_extreme_price_errors(df, verbose=verbose)
+    df = winsorize(df, verbose=verbose)
     return df
