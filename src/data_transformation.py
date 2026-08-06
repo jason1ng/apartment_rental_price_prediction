@@ -113,7 +113,10 @@ def get_engineered_feature_lists(df: pd.DataFrame) -> tuple:
 
 def build_preprocessor(numeric_features: list, categorical_features: list,
                         scale_numeric: bool = True) -> ColumnTransformer:
-    """scale_numeric=True for Linear Regression / KNN (scale-sensitive).
+    """Build a preprocessing transformer that converts engineered features into
+    a numeric matrix for modelling.
+
+    scale_numeric=True for Linear Regression / KNN (scale-sensitive).
     scale_numeric=False for Random Forest / Gradient Boosting (scale-invariant).
     """
     numeric_steps = [("scaler", StandardScaler())] if scale_numeric else []
