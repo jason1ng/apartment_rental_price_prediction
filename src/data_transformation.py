@@ -44,11 +44,6 @@ def engineer_pets_features(df: pd.DataFrame) -> pd.DataFrame:
     """Split pets_allowed the same way as amenities: 'Cats' and 'Cats,Dogs' both
     indicate cats are allowed, but naive one-hot treats them as unrelated
     categories. allows_cats/allows_dogs share that signal explicitly.
-
-    Note: the raw data has no explicit "no pets" category — only affirmative
-    mentions or a blank/"Not Specified" value — so pets_policy_specified
-    distinguishes "landlord stated a policy" from "unknown," rather than
-    assuming "Not Specified" means pets are disallowed.
     """
     df = df.copy()
     pets_str = df["pets_allowed"].fillna("Not Specified").astype(str)

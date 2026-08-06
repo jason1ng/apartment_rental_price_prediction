@@ -30,12 +30,6 @@ def build_prepared_dataset(raw_csv_path: str = RAW_CSV_PATH, verbose: bool = Tru
 
     return df
 
-
-def build_final_dataset(raw_csv_path: str = RAW_CSV_PATH, verbose: bool = True) -> pd.DataFrame:
-    """Backward-compatible wrapper for the Section 3.5 prepared dataset."""
-    return build_prepared_dataset(raw_csv_path=raw_csv_path, verbose=verbose)
-
-
 if __name__ == "__main__":
     prepared_df = build_prepared_dataset()
     prepared_df.to_csv(OUTPUT_PATH, index=False)
