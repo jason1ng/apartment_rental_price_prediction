@@ -10,7 +10,6 @@ real effect on tree-based models (Random Forest, Gradient Boosting),
 which split on thresholds rather than magnitudes.
 """
 import pandas as pd
-from streamlit import columns
 
 OUTLIER_COLS = ["price", "square_feet"]  # all numeric features
 PRICE_MAX_VALID = 20000

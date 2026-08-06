@@ -74,8 +74,9 @@ def encode_city(df: pd.DataFrame, train_df: pd.DataFrame = None) -> pd.DataFrame
     """city_category: city name for cities with >= CITY_FREQUENCY_THRESHOLD listings,
     else "Other" — one-hot encoded downstream.
 
-    Pass train_df when transforming validation/test data so the kept-city
-    list is learned from training data only (no leakage).
+    Pass the untransformed training dataframe as train_df when transforming
+    validation/test data so the kept-city list is learned from training data
+    only (no leakage).
     """
     df = df.copy()
     reference = train_df if train_df is not None else df
