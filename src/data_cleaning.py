@@ -52,7 +52,7 @@ def clean(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     df["pets_allowed"] = df["pets_allowed"].replace("Cats,Dogs,None", "Not Specified")
 
     # 3.2.5 — defensive type/whitespace cleanup
-    for col in ["cityname", "state", "fee", "has_photo"]:
+    for col in ["cityname", "state", "has_photo"]:
         df[col] = df[col].astype(str).str.strip()
 
     if verbose:

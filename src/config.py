@@ -9,7 +9,7 @@ KAGGLE_DATASET = "shashanks1202/apartment-rent-data"  # confirm this matches you
 # Columns dropped entirely per 3.1 justification (id, text, zero-variance, leaking, >90% missing)
 COLS_TO_DROP = [
     "id", "title", "body", "currency", "price_display",
-    "time", "source", "address",
+    "time", "source", "address", "fee"
 ]
 
 # Columns used once to filter rows, then dropped (non-standard listings)
@@ -30,5 +30,5 @@ RECODE_MISSING = {
 
 # Final feature set after cleaning
 NUMERIC_FEATURES = ["bathrooms", "bedrooms", "square_feet", "latitude", "longitude"]
-CATEGORICAL_FEATURES = ["cityname", "state", "amenities", "pets_allowed", "fee", "has_photo"]
+CATEGORICAL_FEATURES = ["cityname", "state", "amenities", "pets_allowed", "has_photo"]
 TARGET = "price"

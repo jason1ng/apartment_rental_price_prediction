@@ -21,7 +21,7 @@ TOP_AMENITIES = [
 # one-hot encoding dimensionality.
 CITY_FREQUENCY_THRESHOLD = 300
 
-LOW_CARD_CATEGORICAL = ["state", "fee", "has_photo", "city_category"]
+LOW_CARD_CATEGORICAL = ["state", "has_photo", "city_category"]
 NUMERIC_FEATURES_BASE = ["bathrooms", "bedrooms", "square_feet", "latitude", "longitude"]
 
 
