@@ -1,17 +1,19 @@
 """
-Section 3.4 Outlier Treatment.
+Section 3.3 Outlier Treatment.
 
-Approach: cap (winsorize) rather than remove. Removing outliers outright
-would drop ~4.7% of price rows and ~2.9% of square_feet rows (computed
-below) — a meaningful chunk of real listings, not data-entry errors.
-Capping preserves every row while bounding the influence of extreme
-values on models sensitive to them (Linear Regression), and has no
-real effect on tree-based models (Random Forest, Gradient Boosting),
-which split on thresholds rather than magnitudes.
+Approach: remove only clearly implausible rental prices, then cap the
+upper tail of square_feet. High rents are retained because they may be
+valid luxury listings and price is the prediction target; capping it
+would teach the model that every rent above the cap has the same value.
+
+The square_feet cap preserves rows while bounding the influence of very
+large units on scale-sensitive models such as Linear Regression and KNN.
+Tree-based models are largely invariant to feature scale.
 """
 import pandas as pd
 
-OUTLIER_COLS = ["price", "square_feet"]  # all numeric features
+# Only square_feet is winsorized. Other numeric fields are audited but retained.
+OUTLIER_COLS = ["square_feet"]
 PRICE_MAX_VALID = 20000
 
 def audit_iqr(df: pd.DataFrame, columns: list, k: float = 1.5):
@@ -87,12 +89,16 @@ def remove_extreme_price_errors(df: pd.DataFrame, verbose: bool = True) -> pd.Da
     return df
 
 def winsorize(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
-    """Cap price and square_feet at their 1.5*IQR upper bound. Returns a new dataframe."""
+    """Cap only the upper tail of square_feet at its 1.5*IQR bound.
+
+    Price is intentionally not capped: it is the target variable and high
+    prices can represent valid premium listings.
+    """
     df = df.copy()
 
     for col in OUTLIER_COLS:
         lower, upper = compute_iqr_bounds(df, col)
-        n_flagged = ((df[col] < lower) | (df[col] > upper)).sum()
+        n_upper = (df[col] > upper).sum()
 
         # Only cap the upper tail — extreme-high values (mansion-sized listings,
         # data-entry errors) drive the skew here, not low values, which are
@@ -100,13 +106,13 @@ def winsorize(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
         df[col] = df[col].clip(upper=upper)
 
         if verbose:
-            print(f"[3.4] {col}: capped {n_flagged} rows ({n_flagged/len(df):.2%}) "
+            print(f"[3.3] {col}: capped {n_upper} rows ({n_upper/len(df):.2%}) "
                   f"above {upper:,.0f} (IQR upper bound)")
 
     return df
 
 def treat_outliers(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
-    """Remove extreme price errors, then winsorize price and square_feet."""
+    """Remove implausible prices, then winsorize extreme square-footage values."""
     df = df.copy()
     df = remove_extreme_price_errors(df, verbose=verbose)
     df = winsorize(df, verbose=verbose)
