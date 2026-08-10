@@ -3,8 +3,8 @@ Section 3.5 Prepared Dataset.
 
 Runs Sections 3.2 (Cleaning) and 3.3 (Outlier Treatment) only.
 Section 3.4 (Data Transformation) is intentionally applied AFTER the
-train-test split so city_category is learned from the training data only,
-preserving the methodological integrity of the modelling pipeline.
+train-test split so cityname's target encoding is learned from the training
+data only, preserving the methodological integrity of the modelling pipeline.
 """
 import pandas as pd
 

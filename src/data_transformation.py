@@ -5,23 +5,29 @@ Addresses the high-cardinality risk flagged in Section 1.6: cityname
 (~2,975 unique) and amenities (~9,786 unique combinations) cannot be
 one-hot encoded naively without exploding dimensionality and hurting
 KNN's distance calculations.
+
+cityname is target-encoded (each city's value = its mean training price,
+smoothed toward the global mean for low-count cities) rather than one-hot
+encoded. A frequency-threshold + "Other" bucket was tried first but
+collapsed ~67% of listings into a single category, capturing only ~17% of
+the price variance that raw city means alone explain (~52%) — location is
+the strongest single price driver in this dataset, so losing it this way
+cost more than the dimensionality it saved. Target encoding keeps every
+city's signal as one continuous, leakage-safe column instead (fit on
+training data only; see build_preprocessor).
 """
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, TargetEncoder
 
 TOP_AMENITIES = [
     "Parking", "Pool", "Gym", "Patio/Deck", "Washer Dryer", "Storage",
     "Clubhouse", "Dishwasher", "AC", "Fireplace", "Refrigerator",
 ]
 
-# Cities with enough observations keep their own category;
-# less frequent cities are grouped into "Other" to control
-# one-hot encoding dimensionality.
-CITY_FREQUENCY_THRESHOLD = 300
-
-LOW_CARD_CATEGORICAL = ["state", "has_photo", "city_category"]
+LOW_CARD_CATEGORICAL = ["state", "has_photo"]
+CITY_FEATURE = ["cityname"]
 NUMERIC_FEATURES_BASE = ["bathrooms", "bedrooms", "square_feet", "latitude", "longitude"]
 
 
@@ -65,49 +71,33 @@ def engineer_room_density(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def encode_city(df: pd.DataFrame, train_df: pd.DataFrame = None) -> pd.DataFrame:
-    """city_category: city name for cities with >= CITY_FREQUENCY_THRESHOLD listings,
-    else "Other" — one-hot encoded downstream.
-
-    Pass the untransformed training dataframe as train_df when transforming
-    validation/test data so the kept-city list is learned from training data
-    only (no leakage).
-    """
-    df = df.copy()
-    reference = train_df if train_df is not None else df
-    freq_map = reference["cityname"].value_counts()
-    kept_cities = freq_map[freq_map >= CITY_FREQUENCY_THRESHOLD].index
-
-    df["city_category"] = df["cityname"].where(df["cityname"].isin(kept_cities), "Other")
-
-    return df.drop(columns=["cityname"])
-
-
-def transform(df: pd.DataFrame, train_df: pd.DataFrame = None) -> pd.DataFrame:
-    """Apply full 3.3 transformation. Low-cardinality categoricals are one-hot
-    encoded inside the modelling pipeline (see build_preprocessor), so
-    encoders are fit on training data only.
+def transform(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply full 3.3 transformation. cityname is left untouched here — it's
+    target-encoded inside build_preprocessor(), which needs y and must be
+    fit on training data only, so it can't happen at this stage. Low-cardinality
+    categoricals (state, has_photo) are one-hot encoded there too.
     """
     df = engineer_amenity_features(df)
     df = engineer_pets_features(df)
     df = engineer_room_density(df)
-    df = encode_city(df, train_df=train_df)
     return df
 
 
 def get_engineered_feature_lists(df: pd.DataFrame) -> tuple:
-    """Return (numeric_features, categorical_features) after transform() has been applied."""
+    """Return (numeric_features, categorical_features, city_feature) after
+    transform() has been applied.
+    """
     amenity_flag_cols = [c for c in df.columns if c.startswith("amenity_has_")]
     numeric = (NUMERIC_FEATURES_BASE
                + ["amenity_count", "squarefeet_per_room",
                   "allows_cats", "allows_dogs", "pets_policy_specified"]
                + amenity_flag_cols)
     categorical = LOW_CARD_CATEGORICAL
-    return numeric, categorical
+    return numeric, categorical, CITY_FEATURE
 
 
 def build_preprocessor(numeric_features: list, categorical_features: list,
-                        scale_numeric: bool = True) -> ColumnTransformer:
+                        city_features: list, scale_numeric: bool = True) -> ColumnTransformer:
     """Build a preprocessing transformer that converts engineered features into
     a numeric matrix for modelling.
 
@@ -117,7 +107,13 @@ def build_preprocessor(numeric_features: list, categorical_features: list,
     numeric_steps = [("scaler", StandardScaler())] if scale_numeric else []
     numeric_pipeline = Pipeline(numeric_steps) if numeric_steps else "passthrough"
 
+    city_steps = [("encode", TargetEncoder(target_type="continuous"))]
+    if scale_numeric:
+        city_steps.append(("scaler", StandardScaler()))
+    city_pipeline = Pipeline(city_steps)
+
     return ColumnTransformer(transformers=[
         ("numeric", numeric_pipeline, numeric_features),
+        ("city", city_pipeline, city_features),
         ("categorical", OneHotEncoder(handle_unknown="ignore"), categorical_features),
     ])
