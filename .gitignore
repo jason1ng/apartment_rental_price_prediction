@@ -22,5 +22,4 @@ rent_env/
 # Streamlit secrets (never commit API keys/tokens)
 .streamlit/secrets.toml
 
-# Trained models ARE committed (see notebooks/03_modelling.ipynb) so the
-# Streamlit app can load them directly without retraining on startup.
+
