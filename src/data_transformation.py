@@ -107,7 +107,7 @@ def build_preprocessor(numeric_features: list, categorical_features: list,
     numeric_steps = [("scaler", StandardScaler())] if scale_numeric else []
     numeric_pipeline = Pipeline(numeric_steps) if numeric_steps else "passthrough"
 
-    city_steps = [("encode", TargetEncoder(target_type="continuous"))]
+    city_steps = [("encode", TargetEncoder(target_type="continuous", random_state=42))]
     if scale_numeric:
         city_steps.append(("scaler", StandardScaler()))
     city_pipeline = Pipeline(city_steps)
