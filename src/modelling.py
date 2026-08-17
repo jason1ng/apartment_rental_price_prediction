@@ -7,13 +7,15 @@ that logic here rather than in each notebook section means a change to the metri
 set applies to everyone's model at once.
 
 Import into 03_modelling.ipynb with:
-    from src.modelling import train_knn, train_xgboost, evaluate_model
+    from src.modelling import train_knn, train_random_forest, train_xgboost, evaluate_model
 """
 import numpy as np
 from scipy import sparse
 from sklearn.metrics import mean_absolute_error, r2_score, root_mean_squared_error
 from sklearn.model_selection import GridSearchCV
 from sklearn.neighbors import KNeighborsRegressor
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.pipeline import Pipeline
 from xgboost import XGBRegressor
 
 # Searched on a log-ish spacing rather than every integer: CV RMSE changes slowly
@@ -29,6 +31,12 @@ XGB_PARAM_GRID = {
     "n_estimators": [100, 300, 500],
     "max_depth": [3, 5, 7],
     "learning_rate": [0.01, 0.05, 0.1],
+}
+
+RF_PARAM_GRID = {
+    "regressor__n_estimators": [100, 200, 300],
+    "regressor__max_depth": [10, 15, 20],
+    "regressor__min_samples_leaf": [2, 5, 10],
 }
 
 def to_dense(X) -> np.ndarray:
@@ -92,6 +100,42 @@ def train_xgboost(
     )
     grid.fit(X_train, y_train)
  
+    return grid
+
+def train_random_forest(
+    X_train, y_train, preprocessor, param_grid: dict = None, cv: int = 5
+) -> GridSearchCV:
+    """Tune a preprocessed Random Forest pipeline by grid search.
+
+    ``preprocessor`` is fitted inside each cross-validation fold, preventing data
+    leakage from the target encoder and keeping the returned estimator ready to
+    score raw transformed features.
+
+    Scored with neg_root_mean_squared_error so the selected model is the one that
+    minimises RMSE, the headline metric used to compare all four models.
+
+    Returns the GridSearchCV object (not just the estimator) so the notebook can
+    report best_params_/best_score_ and plot the full cv_results_ search results
+    as evidence of the tuning process.
+    """
+    param_grid = param_grid if param_grid is not None else RF_PARAM_GRID
+
+    pipeline = Pipeline([
+        ("preprocess", preprocessor),
+        ("regressor", RandomForestRegressor(random_state=42, n_jobs=-1)),
+    ])
+
+    grid = GridSearchCV(
+        pipeline,
+        param_grid=param_grid,
+        scoring="neg_root_mean_squared_error",
+        cv=cv,
+        n_jobs=-1,
+        verbose=1,
+    )
+
+    grid.fit(X_train, y_train)
+
     return grid
 
 def evaluate_model(model, X_test, y_test) -> dict:
