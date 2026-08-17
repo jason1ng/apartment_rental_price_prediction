@@ -22,6 +22,5 @@ rent_env/
 # Streamlit secrets (never commit API keys/tokens)
 .streamlit/secrets.toml
 
-# Large trained model files (train-on-startup pattern used instead)
-models/*.pkl
-models/*.joblib
+# Trained models ARE committed (see notebooks/03_modelling.ipynb) so the
+# Streamlit app can load them directly without retraining on startup.
