@@ -7,12 +7,13 @@ that logic here rather than in each notebook section means a change to the metri
 set applies to everyone's model at once.
 
 Import into 03_modelling.ipynb with:
-    from src.modelling import train_knn, train_random_forest, train_xgboost, evaluate_model
+    from src.modelling import train_linear_regression, train_knn, train_random_forest, train_xgboost, evaluate_model
 """
 import numpy as np
 from scipy import sparse
 from sklearn.metrics import mean_absolute_error, r2_score, root_mean_squared_error
 from sklearn.model_selection import GridSearchCV
+from sklearn.linear_model import LinearRegression
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.pipeline import Pipeline
@@ -42,6 +43,18 @@ RF_PARAM_GRID = {
 def to_dense(X) -> np.ndarray:
     """Convert a sparse design matrix to a dense array for distance-based models."""
     return X.toarray() if sparse.issparse(X) else np.asarray(X)
+
+
+def train_linear_regression(X_train, y_train) -> LinearRegression:
+    """Fit and return the untuned Linear Regression baseline.
+
+    ``X_train`` must be the scaled, preprocessed feature matrix. Linear
+    Regression has no hyperparameters to tune in this project, so fitting it
+    once is the complete baseline training step.
+    """
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+    return model
 
 
 def train_knn(X_train, y_train, param_grid: dict = None, cv: int = 5) -> GridSearchCV:

@@ -4,7 +4,7 @@
 Apartment Rental Price Prediction — Streamlit App
 
 Features:
-- Model performance comparison (KNN vs Random Forest)
+- Model performance comparison (Linear Regression, KNN, and Random Forest)
 - Visualizations from model evaluation
 - Single predictor input form showing predictions from all models
 """
@@ -26,14 +26,14 @@ from src import config
 from src.data_cleaning import clean
 from src.data_transformation import build_preprocessor, transform, get_engineered_feature_lists
 from src.final_dataset_output import build_prepared_dataset
-from src.modelling import evaluate_model, to_dense, train_knn
+from src.modelling import evaluate_model, to_dense, train_knn, train_linear_regression
 
 st.set_page_config(page_title="Apartment Rent Predictor", page_icon="🏠", layout="wide")
 
 
 @st.cache_resource(show_spinner="Loading data and training models (first load only)...")
 def get_trained_models():
-    """Load data, build features, and train both KNN and RF models."""
+    """Load data, build features, and train Linear Regression, KNN, and RF."""
     # Load and prepare data
     prepared_df = build_prepared_dataset(verbose=False)
 
@@ -57,6 +57,10 @@ def get_trained_models():
     XX_test = preprocessor_knn.transform(X_test_transformed)
     XX_train_knn = to_dense(XX_train)
     XX_test_knn = to_dense(XX_test)
+
+    # --- Linear Regression baseline (uses the same scaled features as KNN) ---
+    linear_estimator = train_linear_regression(XX_train_knn, y_train)
+    linear_metrics = evaluate_model(linear_estimator, XX_test_knn, y_test)
 
     knn_grid = train_knn(XX_train_knn, y_train, cv=5)
     knn_metrics = evaluate_model(knn_grid.best_estimator_, XX_test_knn, y_test)
@@ -88,6 +92,11 @@ def get_trained_models():
     df_clean = clean(raw, verbose=False)
 
     return {
+        "linear": {
+            "model": linear_estimator,
+            "preprocessor": preprocessor_knn,
+            "metrics": linear_metrics,
+        },
         "knn": {
             "model": knn_grid.best_estimator_,
             "preprocessor": preprocessor_knn,
@@ -111,6 +120,7 @@ def get_trained_models():
 
 # Load models and data
 models = get_trained_models()
+linear_model = models["linear"]
 knn_model = models["knn"]
 rf_model = models["rf"]
 df_clean = models["df_clean"]
@@ -128,6 +138,17 @@ st.caption(
 # ============================================================================
 with st.sidebar:
     st.header("📊 Model Performance")
+
+    # Linear Regression metrics
+    st.subheader("Linear Regression")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("RMSE", f"${linear_model['metrics']['rmse']:,.0f}")
+        st.metric("MAE", f"${linear_model['metrics']['mae']:,.0f}")
+    with col2:
+        st.metric("R²", f"{linear_model['metrics']['r2']:.4f}")
+
+    st.divider()
 
     # KNN Metrics
     st.subheader("K-Nearest Neighbors")
@@ -173,6 +194,7 @@ with st.sidebar:
 st.header("📈 Model Evaluation Visualizations")
 
 viz_tabs = st.tabs([
+    "Linear Regression: Predicted vs Actual",
     "KNN: k vs CV RMSE",
     "KNN: Predicted vs Actual",
     "RF: Hyperparameter Search",
@@ -180,15 +202,18 @@ viz_tabs = st.tabs([
 ])
 
 with viz_tabs[0]:
-    st.image("outputs/figures/knn_k_search.png", caption="KNN Hyperparameter Search — 5-fold CV RMSE by k and weighting")
+    st.image("outputs/figures/linear_regression_pred_vs_actual.png", caption="Linear Regression predicted vs actual price on the test set")
 
 with viz_tabs[1]:
-    st.image("outputs/figures/knn_pred_vs_actual.png", caption="KNN — Predicted vs Actual Price on Test Set")
+    st.image("outputs/figures/knn_k_search.png", caption="KNN Hyperparameter Search — 5-fold CV RMSE by k and weighting")
 
 with viz_tabs[2]:
-    st.image("outputs/figures/rf_hyperparameter_search.png", caption="Random Forest Hyperparameter Search — 5-fold CV RMSE")
+    st.image("outputs/figures/knn_pred_vs_actual.png", caption="KNN — Predicted vs Actual Price on Test Set")
 
 with viz_tabs[3]:
+    st.image("outputs/figures/rf_hyperparameter_search.png", caption="Random Forest Hyperparameter Search — 5-fold CV RMSE")
+
+with viz_tabs[4]:
     st.image("outputs/figures/rf_pred_vs_actual.png", caption="Random Forest — Predicted vs Actual Price on Test Set")
 
 
@@ -196,7 +221,7 @@ with viz_tabs[3]:
 # MAIN: Predictor Input (Single input for all models)
 # ============================================================================
 st.header("🔮 Rent Price Prediction")
-st.markdown("Enter apartment details **once** to get predictions from **both models**.")
+st.markdown("Enter apartment details **once** to get predictions from all models.")
 
 col1, col2 = st.columns(2)
 
@@ -211,7 +236,6 @@ with col2:
     state = st.selectbox("State", sorted(df_clean["state"].unique()))
     cities_in_state = sorted(df_clean.loc[df_clean["state"] == state, "cityname"].unique())
     cityname = st.selectbox("City", cities_in_state)
-    fee = st.selectbox("Listing fee required?", sorted(df_clean["fee"].unique()))
 
 pets_allowed = st.selectbox("Pets allowed", sorted(df_clean["pets_allowed"].unique()))
 has_photo = st.selectbox("Has photo", sorted(df_clean["has_photo"].unique()))
@@ -234,7 +258,7 @@ with st.expander("📍 Coordinates used (auto-filled from city)"):
 # ============================================================================
 # PREDICTION BUTTON - Single input, both models
 # ============================================================================
-if st.button("Predict Rental Price (Both Models)", type="primary", use_container_width=True):
+if st.button("Predict Rental Price", type="primary", use_container_width=True):
     # Build input dataframe
     input_row = pd.DataFrame([{
         "bathrooms": bathrooms,
@@ -246,17 +270,17 @@ if st.button("Predict Rental Price (Both Models)", type="primary", use_container
         "state": state,
         "amenities": amenities,
         "pets_allowed": pets_allowed,
-        "fee": fee,
         "has_photo": has_photo,
     }])
 
     # Apply same transformation as training
     input_transformed = transform(input_row)
 
-    # --- KNN Prediction ---
-    # KNN needs the scaled preprocessor
+    # --- Linear Regression and KNN predictions ---
+    # Both use the same scaled preprocessor.
     XX_input = knn_model["preprocessor"].transform(input_transformed)
     XX_input_dense = to_dense(XX_input)
+    linear_pred = linear_model["model"].predict(XX_input_dense)[0]
     knn_pred = knn_model["model"].predict(XX_input_dense)[0]
 
     # --- RF Prediction ---
@@ -266,9 +290,14 @@ if st.button("Predict Rental Price (Both Models)", type="primary", use_container
     # Display results side by side
     st.subheader("Predictions")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
+        st.markdown("### Linear Regression")
+        st.metric("Estimated Monthly Rent", f"${linear_pred:,.0f}")
+        st.caption(f"Baseline model | Test RMSE: ${linear_model['metrics']['rmse']:,.0f}")
+
+    with col2:
         st.markdown("### 🤖 K-Nearest Neighbors")
         st.metric("Estimated Monthly Rent", f"${knn_pred:,.0f}")
         st.caption(
@@ -277,7 +306,7 @@ if st.button("Predict Rental Price (Both Models)", type="primary", use_container
             f"Test RMSE: ${knn_model['metrics']['rmse']:,.0f}"
         )
 
-    with col2:
+    with col3:
         st.markdown("### 🌳 Random Forest")
         st.metric("Estimated Monthly Rent", f"${rf_pred:,.0f}")
         st.caption(
@@ -290,20 +319,25 @@ if st.button("Predict Rental Price (Both Models)", type="primary", use_container
     # Comparison
     st.divider()
     st.subheader("📊 Comparison")
-    diff = abs(knn_pred - rf_pred)
-    avg = (knn_pred + rf_pred) / 2
+    predictions = {
+        "Linear Regression": linear_pred,
+        "KNN": knn_pred,
+        "Random Forest": rf_pred,
+    }
+    prediction_range = max(predictions.values()) - min(predictions.values())
+    average_prediction = sum(predictions.values()) / len(predictions)
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("KNN Prediction", f"${knn_pred:,.0f}")
+        st.metric("Lowest prediction", f"${min(predictions.values()):,.0f}")
     with col2:
-        st.metric("RF Prediction", f"${rf_pred:,.0f}")
+        st.metric("Highest prediction", f"${max(predictions.values()):,.0f}")
     with col3:
-        st.metric("Difference", f"${diff:,.0f}", delta=f"{diff/avg*100:.1f}% of avg")
+        st.metric("Model range", f"${prediction_range:,.0f}", delta=f"{prediction_range/average_prediction*100:.1f}% of avg")
 
-    if diff / avg < 0.1:
+    if prediction_range / average_prediction < 0.1:
         st.success("✅ Models agree closely (difference < 10%)")
-    elif diff / avg < 0.2:
+    elif prediction_range / average_prediction < 0.2:
         st.warning("⚠️ Models moderately disagree (difference 10-20%)")
     else:
         st.error("❌ Models significantly disagree (difference > 20%)")
