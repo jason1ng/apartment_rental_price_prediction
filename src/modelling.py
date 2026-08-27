@@ -190,22 +190,77 @@ def build_comparison_table(results: dict) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("rmse").reset_index(drop=True)
 
 
-def plot_metric_comparison(comparison_df: pd.DataFrame, metric: str = "rmse", ax=None):
-    """Bar chart of one metric across all models, sorted best-to-worst.
-
-    Returns the Axes rather than showing the plot directly, so the caller
-    decides what to do with it: fig.savefig() for the report, st.pyplot()
-    in Streamlit, or combine several into one multi-panel figure.
+def plot_metric_comparison(
+    comparison_df: pd.DataFrame,
+    metric: str = "rmse",
+    ax=None
+):
     """
-    ascending = metric != "r2"  # lower is better for rmse/mae, higher is better for r2
-    ordered = comparison_df.sort_values(metric, ascending=ascending)
+    Plot a bar chart for one regression metric.
+
+    RMSE and MAE: lower is better.
+    R²: higher is better.
+    """
+
+    if metric not in ["rmse", "mae", "r2"]:
+        raise ValueError("metric must be 'rmse', 'mae', or 'r2'")
+
+    ascending = metric != "r2"
+    ordered = comparison_df.sort_values(
+        metric,
+        ascending=ascending
+    )
 
     if ax is None:
         _, ax = plt.subplots(figsize=(7, 5))
 
-    ax.bar(ordered["model"], ordered[metric], color="#4C78A8")
-    label = "R\u00b2" if metric == "r2" else metric.upper()
-    ax.set_ylabel(label, fontsize=13)
-    ax.set_title(f"{label} by model", fontsize=14)
-    ax.tick_params(axis="x", labelsize=11, rotation=15)
+    bars = ax.bar(
+        ordered["model"],
+        ordered[metric]
+    )
+
+    label = "R²" if metric == "r2" else metric.upper()
+
+    ax.set_ylabel(label, fontsize=12)
+    ax.set_title(
+        f"{label} Comparison",
+        fontsize=14,
+        fontweight="bold"
+    )
+
+    ax.tick_params(
+        axis="x",
+        labelsize=10,
+        rotation=20
+    )
+
+    # Add values above bars
+    for bar, value in zip(bars, ordered[metric]):
+        if metric == "r2":
+            text = f"{value:.3f}"
+        else:
+            text = f"{value:.2f}"
+
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height(),
+            text,
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold"
+        )
+
+    # Give labels some space above bars
+    ymax = ordered[metric].max()
+
+    if ymax > 0:
+        ax.set_ylim(0, ymax * 1.15)
+
+    ax.grid(
+        axis="y",
+        linestyle="--",
+        alpha=0.3
+    )
+
     return ax
