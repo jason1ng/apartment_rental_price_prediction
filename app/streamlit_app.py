@@ -34,6 +34,7 @@ if str(REPO_ROOT) not in sys.path:
 from src import config
 from src.data_transformation import TOP_AMENITIES, transform
 from src.final_dataset_output import RAW_CSV_PATH, build_prepared_dataset
+from src.model_parts import ensure_available, is_available
 from src.modelling import evaluate_model, to_dense
 
 MODELS_DIR = REPO_ROOT / "models"
@@ -128,12 +129,18 @@ def load_artifacts() -> dict:
     """Load the fitted preprocessor and all four models from ``models/``.
 
     Cached as a resource: the unpickled estimators are shared across sessions
-    and reruns, so the ~600 MB random forest is read from disk only once.
+    and reruns, so the large random forest is read from disk only once.
+
+    ``ensure_available`` rebuilds any model that is committed as split parts
+    (see src/model_parts.py) the first time it is needed, so the app works from
+    a fresh clone without a manual step.
     """
-    artifacts = {"preprocessor": joblib.load(MODELS_DIR / PREPROCESSOR_FILE)}
+    artifacts = {
+        "preprocessor": joblib.load(ensure_available(MODELS_DIR / PREPROCESSOR_FILE))
+    }
 
     for key, spec in MODEL_SPECS.items():
-        loaded = joblib.load(MODELS_DIR / spec["file"])
+        loaded = joblib.load(ensure_available(MODELS_DIR / spec["file"]))
         entry = {**spec}
 
         # The notebook dumps the whole GridSearchCV (not just best_estimator_),
@@ -196,9 +203,13 @@ def score_models(_artifacts: dict) -> dict:
 
 
 def missing_files() -> list[str]:
-    """Return the artifacts the app needs but cannot find on disk."""
+    """Return the artifacts the app needs but can neither find nor rebuild.
+
+    A model committed as split parts counts as present — ``load_artifacts``
+    reassembles it on first use.
+    """
     required = [PREPROCESSOR_FILE] + [spec["file"] for spec in MODEL_SPECS.values()]
-    return [name for name in required if not (MODELS_DIR / name).exists()]
+    return [name for name in required if not is_available(MODELS_DIR / name)]
 
 
 # ============================================================================

@@ -51,6 +51,31 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+### Large model files
+
+`models/random_forest.pkl` is ~544 MB, well over GitHub's 100 MB per-file limit,
+so it is **not** committed. It lives in the repo as compressed parts under
+`models/parts/`, and is rebuilt locally:
+
+```bash
+python -m src.model_parts status     # which models fit on GitHub, which are split
+python -m src.model_parts join --all # rebuild the .pkl files from their parts
+```
+
+The Streamlit app calls `join` itself the first time it needs a missing model,
+so `streamlit run app/streamlit_app.py` works straight after a clone. Run `join`
+manually before opening `notebooks/03_modelling.ipynb`, which loads the `.pkl`
+files directly.
+
+After retraining a large model, re-split it before committing:
+
+```bash
+python -m src.model_parts split --all
+```
+
+Rebuilt files are compressed (544 MB → 140 MB) and checksum-verified on join;
+they unpickle to exactly the same estimator.
+
 Using the same `requirements.txt` matters more than it sounds — if one teammate has scikit-learn 1.3 and another has 1.5, model results and pickled objects can silently differ or break between machines. Check the pinned versions against your own with `pip freeze` before installing over an existing environment; adjust if your installed versions differ significantly.
 
 ## Deploying the prototype

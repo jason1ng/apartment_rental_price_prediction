@@ -23,3 +23,12 @@ rent_env/
 .streamlit/secrets.toml
 
 
+
+# Model artifacts too large for GitHub. random_forest.pkl is ~544 MB, far over
+# the 100 MB file limit, so it is committed as split parts in models/parts/
+# instead (see src/model_parts.py). The app rebuilds it on first run.
+models/random_forest.pkl
+
+# Scratch files from splitting/joining
+models/*.joining
+models/parts/*.staged
