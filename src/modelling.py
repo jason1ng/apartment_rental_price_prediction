@@ -10,6 +10,8 @@ Import into 03_modelling.ipynb with:
     from src.modelling import train_linear_regression, train_knn, train_random_forest, train_xgboost, evaluate_model
 """
 import numpy as np
+import pandas as pd
+import plotly as plt
 from scipy import sparse
 from sklearn.metrics import mean_absolute_error, r2_score, root_mean_squared_error
 from sklearn.model_selection import GridSearchCV
@@ -170,3 +172,40 @@ def evaluate_model(model, X_test, y_test) -> dict:
         "r2": r2_score(y_test, y_pred),
         "predictions": y_pred,
     }
+
+def build_comparison_table(results: dict) -> pd.DataFrame:
+    """Combine each model's evaluate_model() output into one comparison table.
+
+    ``results`` maps model name -> the dict returned by evaluate_model() (must
+    contain rmse/mae/r2). Sorted by RMSE ascending so the best model appears
+    first. This is the single source of truth for the report's comparison
+    table and the Streamlit app's Model Comparison page - both call this
+    instead of duplicating the aggregation logic, so the numbers can't drift
+    apart between the two.
+    """
+    rows = [
+        {"model": name, "rmse": m["rmse"], "mae": m["mae"], "r2": m["r2"]}
+        for name, m in results.items()
+    ]
+    return pd.DataFrame(rows).sort_values("rmse").reset_index(drop=True)
+
+
+def plot_metric_comparison(comparison_df: pd.DataFrame, metric: str = "rmse", ax=None):
+    """Bar chart of one metric across all models, sorted best-to-worst.
+
+    Returns the Axes rather than showing the plot directly, so the caller
+    decides what to do with it: fig.savefig() for the report, st.pyplot()
+    in Streamlit, or combine several into one multi-panel figure.
+    """
+    ascending = metric != "r2"  # lower is better for rmse/mae, higher is better for r2
+    ordered = comparison_df.sort_values(metric, ascending=ascending)
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 5))
+
+    ax.bar(ordered["model"], ordered[metric], color="#4C78A8")
+    label = "R\u00b2" if metric == "r2" else metric.upper()
+    ax.set_ylabel(label, fontsize=13)
+    ax.set_title(f"{label} by model", fontsize=14)
+    ax.tick_params(axis="x", labelsize=11, rotation=15)
+    return ax
