@@ -1,475 +1,822 @@
-# DRAFT ONLY (gen by AI) — this is a prototype for the compulsory deliverable of BMDS2003 Data Science, not a production-ready application.
-
 """
-Apartment Rental Price Prediction — Streamlit App
+Apartment rental price prediction — Streamlit prototype (BMDS2003 Data Science).
 
-Features:
-- Model performance comparison (Linear Regression, KNN, and Random Forest)
-- Visualizations from model evaluation
-- Single predictor input form showing predictions from all models
+This is the Deployment step of the CRISP-DM write-up. Nothing is trained here:
+every model is loaded from ``models/`` exactly as ``notebooks/03_modelling.ipynb``
+saved it. The app only rebuilds the same train/test split, so it can score the
+saved models on the held-out test set and fill the input widgets with real
+categories from the prepared dataset.
+
+Artifacts expected in ``models/`` (see notebooks/03_modelling.ipynb):
+    preprocessor_scaled.pkl  fitted ColumnTransformer (scaled — linear + KNN)
+    linear_regression.pkl    fitted LinearRegression
+    knn.pkl                  fitted GridSearchCV over KNeighborsRegressor
+    random_forest.pkl        fitted GridSearchCV over a preprocessing pipeline
+    xgboost.pkl              fitted GridSearchCV over a preprocessing pipeline
 """
+
+from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-import kagglehub
-from kagglehub import KaggleDatasetAdapter
+import altair as alt
+import joblib
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import streamlit as st
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import GridSearchCV
-from sklearn.pipeline import Pipeline
+from sklearn.model_selection import train_test_split
 
-# allow "from src.xxx import yyy" when running from repo root
-sys.path.append(str(Path(__file__).resolve().parents[1]))
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from src import config
-from src.data_cleaning import clean
-from src.data_transformation import build_preprocessor, transform, get_engineered_feature_lists
-from src.final_dataset_output import build_prepared_dataset
-from src.modelling import evaluate_model, to_dense, train_knn, train_linear_regression
+from src.data_transformation import TOP_AMENITIES, transform
+from src.final_dataset_output import RAW_CSV_PATH, build_prepared_dataset
+from src.modelling import evaluate_model, to_dense
 
-st.set_page_config(page_title="Apartment Rent Predictor", page_icon="🏠", layout="wide")
+MODELS_DIR = REPO_ROOT / "models"
+FIGURES_DIR = REPO_ROOT / "outputs" / "figures"
+RAW_CSV = REPO_ROOT / RAW_CSV_PATH
+
+# Must match notebooks/03_modelling.ipynb — the saved models were fitted on this
+# exact split, so changing either value here would score them on rows they saw.
+TEST_SIZE = 0.2
+RANDOM_STATE = 42
+
+# Vega sends every plotted row to the browser, so the scatter plots are sampled.
+SCATTER_SAMPLE = 4_000
+
+PREPROCESSOR_FILE = "preprocessor_scaled.pkl"
+
+# "scaled" models consume the shared preprocessor_scaled.pkl matrix; "pipeline"
+# models carry their own preprocessing step and take the transformed frame as is.
+MODEL_SPECS = {
+    "linear": {
+        "label": "Linear regression",
+        "file": "linear_regression.pkl",
+        "features": "scaled",
+        "icon": ":material/show_chart:",
+    },
+    "knn": {
+        "label": "K-nearest neighbours",
+        "file": "knn.pkl",
+        "features": "scaled",
+        "icon": ":material/scatter_plot:",
+    },
+    "rf": {
+        "label": "Random forest",
+        "file": "random_forest.pkl",
+        "features": "pipeline",
+        "icon": ":material/park:",
+    },
+    "xgb": {
+        "label": "XGBoost",
+        "file": "xgboost.pkl",
+        "features": "pipeline",
+        "icon": ":material/bolt:",
+    },
+}
+
+PETS_OPTIONS = {
+    "Cats and dogs": "Cats,Dogs",
+    "Cats only": "Cats",
+    "Dogs only": "Dogs",
+    "Not specified": "Not Specified",
+}
+PHOTO_OPTIONS = {"Full photo": "Yes", "Thumbnail only": "Thumbnail", "No photo": "No"}
+
+# The dataset stores states as two-letter codes; these are only for display, so
+# the selectbox reads "AK (Alaska)" instead of making the user decode "AK".
+STATE_NAMES = {
+    "AK": "Alaska", "AL": "Alabama", "AR": "Arkansas", "AZ": "Arizona",
+    "CA": "California", "CO": "Colorado", "CT": "Connecticut",
+    "DC": "District of Columbia", "DE": "Delaware", "FL": "Florida",
+    "GA": "Georgia", "HI": "Hawaii", "IA": "Iowa", "ID": "Idaho",
+    "IL": "Illinois", "IN": "Indiana", "KS": "Kansas", "KY": "Kentucky",
+    "LA": "Louisiana", "MA": "Massachusetts", "MD": "Maryland", "ME": "Maine",
+    "MI": "Michigan", "MN": "Minnesota", "MO": "Missouri", "MS": "Mississippi",
+    "MT": "Montana", "NC": "North Carolina", "ND": "North Dakota",
+    "NE": "Nebraska", "NH": "New Hampshire", "NJ": "New Jersey",
+    "NM": "New Mexico", "NV": "Nevada", "NY": "New York", "OH": "Ohio",
+    "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania",
+    "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+    "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VA": "Virginia",
+    "VT": "Vermont", "WA": "Washington", "WI": "Wisconsin",
+    "WV": "West Virginia", "WY": "Wyoming",
+}
 
 
-@st.cache_resource(show_spinner="Loading data and training models (first load only)...")
-def get_trained_models():
-    """Load data, build features, and train Linear Regression, KNN, and RF."""
-    # Load and prepare data
-    prepared_df = build_prepared_dataset(verbose=False)
+def state_label(code: str) -> str:
+    """Render a state code with its full name, e.g. ``AK (Alaska)``."""
+    name = STATE_NAMES.get(code)
+    return f"{code} ({name})" if name else code
 
-    # Split BEFORE any transformation (same as notebook)
-    X = prepared_df.drop(columns=["price"])
-    y = prepared_df["price"]
+st.set_page_config(
+    page_title="Apartment rent predictor",
+    page_icon=":material/home_work:",
+    layout="wide",
+)
 
-    from sklearn.model_selection import train_test_split
+
+# ============================================================================
+# Loading — models from disk, data rebuilt to match the saved split
+# ============================================================================
+@st.cache_resource(show_spinner="Loading saved models from models/…")
+def load_artifacts() -> dict:
+    """Load the fitted preprocessor and all four models from ``models/``.
+
+    Cached as a resource: the unpickled estimators are shared across sessions
+    and reruns, so the ~600 MB random forest is read from disk only once.
+    """
+    artifacts = {"preprocessor": joblib.load(MODELS_DIR / PREPROCESSOR_FILE)}
+
+    for key, spec in MODEL_SPECS.items():
+        loaded = joblib.load(MODELS_DIR / spec["file"])
+        entry = {**spec}
+
+        # The notebook dumps the whole GridSearchCV (not just best_estimator_),
+        # which keeps best_params_/cv_results_ available for the tuning charts.
+        if hasattr(loaded, "best_estimator_"):
+            entry["model"] = loaded.best_estimator_
+            entry["best_params"] = loaded.best_params_
+            entry["cv_rmse"] = -loaded.best_score_
+            entry["cv_results"] = loaded.cv_results_
+        else:
+            entry["model"] = loaded
+            entry["best_params"] = None
+            entry["cv_rmse"] = None
+            entry["cv_results"] = None
+
+        artifacts[key] = entry
+
+    return artifacts
+
+
+@st.cache_data(show_spinner="Preparing the dataset…")
+def load_dataset() -> dict:
+    """Rebuild the prepared dataset and the modelling split used by the notebook."""
+    prepared_df = build_prepared_dataset(raw_csv_path=str(RAW_CSV), verbose=False)
+
+    X = prepared_df.drop(columns=[config.TARGET])
+    y = prepared_df[config.TARGET]
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE
     )
-
-    X_train_transformed = transform(X_train)
-    X_test_transformed = transform(X_test)
-
-    numeric, categorical, city = get_engineered_feature_lists(X_train_transformed)
-
-    # --- KNN (uses scaled features) ---
-    preprocessor_knn = build_preprocessor(numeric, categorical, city, scale_numeric=True)
-    XX_train = preprocessor_knn.fit_transform(X_train_transformed, y_train)
-    XX_test = preprocessor_knn.transform(X_test_transformed)
-    XX_train_knn = to_dense(XX_train)
-    XX_test_knn = to_dense(XX_test)
-
-    # --- Linear Regression baseline (uses the same scaled features as KNN) ---
-    linear_estimator = train_linear_regression(XX_train_knn, y_train)
-    linear_metrics = evaluate_model(linear_estimator, XX_test_knn, y_test)
-
-    knn_grid = train_knn(XX_train_knn, y_train, cv=5)
-    knn_metrics = evaluate_model(knn_grid.best_estimator_, XX_test_knn, y_test)
-
-    # --- Random Forest (uses unscaled features) ---
-    rf_pipeline = Pipeline([
-        ("preprocess", build_preprocessor(numeric, categorical, city, scale_numeric=False)),
-        ("regressor", RandomForestRegressor(random_state=42, n_jobs=-1)),
-    ])
-    rf_param_grid = {
-        "regressor__n_estimators": [100, 200, 300],
-        "regressor__max_depth": [10, 15, 20, None],
-        "regressor__min_samples_leaf": [1, 2, 4],
-    }
-    from sklearn.model_selection import GridSearchCV
-    rf_grid = GridSearchCV(
-        rf_pipeline, param_grid=rf_param_grid,
-        scoring="neg_root_mean_squared_error", cv=5, n_jobs=-1, verbose=0,
-    )
-    rf_grid.fit(X_train_transformed, y_train)
-    rf_metrics = evaluate_model(rf_grid.best_estimator_, X_test_transformed, y_test)
-
-    # Also load raw data for UI dropdowns
-    raw = kagglehub.load_dataset(
-        KaggleDatasetAdapter.PANDAS,
-        config.KAGGLE_DATASET,
-        "",
-    )
-    df_clean = clean(raw, verbose=False)
 
     return {
-        "linear": {
-            "model": linear_estimator,
-            "preprocessor": preprocessor_knn,
-            "metrics": linear_metrics,
-        },
-        "knn": {
-            "model": knn_grid.best_estimator_,
-            "preprocessor": preprocessor_knn,
-            "metrics": knn_metrics,
-            "best_params": knn_grid.best_params_,
-            "cv_rmse": -knn_grid.best_score_,
-        },
-        "rf": {
-            "model": rf_grid.best_estimator_,
-            "preprocessor": None,  # RF pipeline includes its own
-            "metrics": rf_metrics,
-            "best_params": rf_grid.best_params_,
-            "cv_rmse": -rf_grid.best_score_,
-        },
-        "df_clean": df_clean,
         "prepared_df": prepared_df,
-        "X_train_transformed": X_train_transformed,
-        "X_test_transformed": X_test_transformed,
+        "X_test_transformed": transform(X_test),
         "y_test": y_test,
+        "n_train": len(X_train),
     }
 
 
-# Load models and data
-models = get_trained_models()
-linear_model = models["linear"]
-knn_model = models["knn"]
-rf_model = models["rf"]
-df_clean = models["df_clean"]
-prepared_df = models["prepared_df"]
+@st.cache_data(show_spinner="Scoring the saved models on the held-out test set…")
+def score_models(_artifacts: dict) -> dict:
+    """Score every loaded model on the test set the notebook held out.
 
-# Page title
-st.title("🏠 Apartment Rental Price Predictor")
-st.caption(
-    "Prototype for BMDS2003 Data Science — predictions are estimates based on "
-    "listed features only and do not account for negotiation, seasonality, "
-    "or individual landlord pricing strategy."
-)
+    ``_artifacts`` is underscore-prefixed so Streamlit skips hashing the
+    estimators; they are immutable for the life of the resource cache.
+    """
+    data = load_dataset()
+    X_test_transformed = data["X_test_transformed"]
+    y_test = data["y_test"]
+
+    # Linear regression and KNN share this matrix, so transform it once.
+    X_test_scaled = to_dense(_artifacts["preprocessor"].transform(X_test_transformed))
+
+    scores = {}
+    for key, spec in MODEL_SPECS.items():
+        features = X_test_scaled if spec["features"] == "scaled" else X_test_transformed
+        scores[key] = evaluate_model(_artifacts[key]["model"], features, y_test)
+
+    return scores
+
+
+def missing_files() -> list[str]:
+    """Return the artifacts the app needs but cannot find on disk."""
+    required = [PREPROCESSOR_FILE] + [spec["file"] for spec in MODEL_SPECS.values()]
+    return [name for name in required if not (MODELS_DIR / name).exists()]
+
 
 # ============================================================================
-# SIDEBAR: Model Performance Comparison
+# Helpers
+# ============================================================================
+def money(value: float) -> str:
+    return f"${value:,.0f}"
+
+
+def metrics_frame(scores: dict, artifacts: dict) -> pd.DataFrame:
+    """One row per model, ordered best (lowest test RMSE) first."""
+    rows = [
+        {
+            "Model": MODEL_SPECS[key]["label"],
+            "Test RMSE": scores[key]["rmse"],
+            "Test MAE": scores[key]["mae"],
+            "Test R²": scores[key]["r2"],
+            "CV RMSE": artifacts[key]["cv_rmse"],
+        }
+        for key in MODEL_SPECS
+    ]
+    return pd.DataFrame(rows).sort_values("Test RMSE").reset_index(drop=True)
+
+
+def search_frame(cv_results: dict) -> pd.DataFrame:
+    """Flatten ``cv_results_`` into a tidy table of tuning evidence."""
+    results = pd.DataFrame(cv_results)
+    param_cols = [column for column in results.columns if column.startswith("param_")]
+
+    frame = results[param_cols].astype(str)
+    frame.columns = [
+        column.replace("param_", "").replace("regressor__", "") for column in param_cols
+    ]
+    frame["CV RMSE"] = -results["mean_test_score"]
+    frame["Mean fit time (s)"] = results["mean_fit_time"]
+    return frame.sort_values("CV RMSE").reset_index(drop=True)
+
+
+def pipeline_importances(model) -> pd.DataFrame:
+    """Feature importances from a fitted preprocessing + regressor pipeline."""
+    names = model.named_steps["preprocess"].get_feature_names_out()
+    return pd.DataFrame(
+        {
+            "Feature": names,
+            "Importance": model.named_steps["regressor"].feature_importances_,
+        }
+    )
+
+
+def predicted_vs_actual_chart(actual: np.ndarray, predicted: np.ndarray) -> alt.LayerChart:
+    """Scatter of predictions against truth, with the ideal y = x reference line."""
+    frame = pd.DataFrame({"Actual rent": actual, "Predicted rent": predicted})
+    if len(frame) > SCATTER_SAMPLE:
+        frame = frame.sample(SCATTER_SAMPLE, random_state=RANDOM_STATE)
+
+    upper = float(max(frame["Actual rent"].max(), frame["Predicted rent"].max()))
+    scale = alt.Scale(domain=[0, upper])
+
+    points = (
+        alt.Chart(frame)
+        .mark_circle(size=18, opacity=0.25)
+        .encode(
+            x=alt.X("Actual rent:Q", scale=scale, title="Actual rent (USD)"),
+            y=alt.Y("Predicted rent:Q", scale=scale, title="Predicted rent (USD)"),
+            tooltip=["Actual rent", "Predicted rent"],
+        )
+    )
+    reference = (
+        alt.Chart(pd.DataFrame({"value": [0, upper]}))
+        .mark_line(strokeDash=[5, 5], color="grey")
+        .encode(x="value:Q", y="value:Q")
+    )
+    return (points + reference).properties(height=380)
+
+
+def residual_chart(actual: np.ndarray, predicted: np.ndarray) -> alt.LayerChart:
+    """Residuals against predictions, with a zero line to read bias against."""
+    frame = pd.DataFrame(
+        {
+            "Predicted rent": predicted,
+            "Residual": np.asarray(actual) - np.asarray(predicted),
+        }
+    )
+    if len(frame) > SCATTER_SAMPLE:
+        frame = frame.sample(SCATTER_SAMPLE, random_state=RANDOM_STATE)
+
+    points = (
+        alt.Chart(frame)
+        .mark_circle(size=18, opacity=0.25)
+        .encode(
+            x=alt.X("Predicted rent:Q", title="Predicted rent (USD)"),
+            y=alt.Y("Residual:Q", title="Actual − predicted (USD)"),
+            tooltip=["Predicted rent", "Residual"],
+        )
+    )
+    zero_line = (
+        alt.Chart(pd.DataFrame({"zero": [0]}))
+        .mark_rule(strokeDash=[5, 5], color="grey")
+        .encode(y="zero:Q")
+    )
+    return (points + zero_line).properties(height=380)
+
+
+def ranked_bar_chart(frame: pd.DataFrame, value: str, label: str, title: str) -> alt.Chart:
+    """Horizontal bar chart sorted by ``value`` — used for coefficients and importances."""
+    return (
+        alt.Chart(frame)
+        .mark_bar()
+        .encode(
+            x=alt.X(f"{value}:Q", title=title),
+            y=alt.Y(f"{label}:N", sort="-x", title=None),
+            color=alt.Color(f"{value}:Q", scale=alt.Scale(scheme="blueorange"), legend=None),
+            tooltip=[label, value],
+        )
+        .properties(height=28 * len(frame) + 40)
+    )
+
+
+# ============================================================================
+# Page header — rendered before the slow loads so the app never looks blank
+# ============================================================================
+st.title("Apartment rental price predictor")
+st.caption(
+    "Prototype for BMDS2003 Data Science. Predictions are estimates from listed "
+    "features only — they do not account for negotiation, seasonality, or an "
+    "individual landlord's pricing strategy."
+)
+
+absent = missing_files()
+if absent:
+    st.error(
+        "Missing model artifacts in `models/`: "
+        + ", ".join(f"`{name}`" for name in absent)
+        + ". Run `notebooks/03_modelling.ipynb` to train and save them.",
+        icon=":material/folder_off:",
+    )
+    st.stop()
+
+if not RAW_CSV.exists():
+    st.error(
+        f"Raw dataset not found at `{RAW_CSV_PATH}`. Run `python load_csv.py` to "
+        "download it from Kaggle.",
+        icon=":material/database:",
+    )
+    st.stop()
+
+artifacts = load_artifacts()
+dataset = load_dataset()
+scores = score_models(artifacts)
+
+prepared_df = dataset["prepared_df"]
+y_test = np.asarray(dataset["y_test"])
+leaderboard = metrics_frame(scores, artifacts)
+best_model = leaderboard.iloc[0]
+
+
+# ============================================================================
+# Sidebar — provenance of everything the app is showing
 # ============================================================================
 with st.sidebar:
-    st.header("📊 Model Performance")
+    st.subheader("How this app runs", divider="gray")
+    st.caption("Models are read from `models/` — this app scores them, it never retrains.")
 
-    # Linear Regression metrics
-    st.subheader("Linear Regression")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("RMSE", f"${linear_model['metrics']['rmse']:,.0f}")
-        st.metric("MAE", f"${linear_model['metrics']['mae']:,.0f}")
-    with col2:
-        st.metric("R²", f"{linear_model['metrics']['r2']:.4f}")
-
-    st.divider()
-
-    # KNN Metrics
-    st.subheader("K-Nearest Neighbors")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("RMSE", f"${knn_model['metrics']['rmse']:,.0f}")
-        st.metric("MAE", f"${knn_model['metrics']['mae']:,.0f}")
-    with col2:
-        st.metric("R²", f"{knn_model['metrics']['r2']:.4f}")
-        st.metric("CV RMSE", f"${knn_model['cv_rmse']:,.0f}")
-
-    st.caption(f"Best params: {knn_model['best_params']}")
-
-    st.divider()
-
-    # RF Metrics
-    st.subheader("Random Forest")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("RMSE", f"${rf_model['metrics']['rmse']:,.0f}")
-        st.metric("MAE", f"${rf_model['metrics']['mae']:,.0f}")
-    with col2:
-        st.metric("R²", f"{rf_model['metrics']['r2']:.4f}")
-        st.metric("CV RMSE", f"${rf_model['cv_rmse']:,.0f}")
-
-    st.caption(f"Best params: {rf_model['best_params']}")
-
-    st.divider()
-
-    # Quick comparison
-    st.subheader("🏆 Comparison")
-    if rf_model['metrics']['rmse'] < knn_model['metrics']['rmse']:
-        st.success("**Random Forest** outperforms KNN on test RMSE")
-    else:
-        st.success("**KNN** outperforms Random Forest on test RMSE")
-
-    st.caption("Lower RMSE/MAE = better. Higher R² = better.")
-
-
-# ============================================================================
-# MAIN: EDA AND LINEAR REGRESSION INSIGHTS
-# ============================================================================
-st.header("Data exploration and Linear Regression insights")
-st.caption(
-    "These charts are generated from the prepared dataset and the held-out test set, "
-    "so they help explain both the data and the baseline model."
-)
-
-eda_tab, diagnostics_tab, coefficients_tab = st.tabs([
-    "Explore the data", "Linear Regression diagnostics", "Linear Regression coefficients"
-])
-
-with eda_tab:
-    total_missing = int(prepared_df.isna().sum().sum())
-    median_price = prepared_df["price"].median()
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Prepared listings", f"{len(prepared_df):,}")
-    col2.metric("Features used", prepared_df.shape[1] - 1)
-    col3.metric("Missing values", f"{total_missing:,}")
-    col4.metric("Median monthly rent", f"${median_price:,.0f}")
-
-    price_col, size_col = st.columns(2)
-    with price_col:
-        price_chart = px.histogram(
-            prepared_df, x="price", nbins=50,
-            labels={"price": "Monthly rent (USD)"},
-            title="Distribution of monthly rent",
-            color_discrete_sequence=["#4C78A8"],
-        )
-        price_chart.update_layout(showlegend=False, margin=dict(t=50, l=0, r=0, b=0))
-        st.plotly_chart(price_chart, use_container_width=True)
-
-    with size_col:
-        scatter_sample = prepared_df.sample(min(5_000, len(prepared_df)), random_state=42)
-        size_chart = px.scatter(
-            scatter_sample, x="square_feet", y="price", opacity=0.35,
-            labels={"square_feet": "Square feet", "price": "Monthly rent (USD)"},
-            title="Rent versus apartment size (5,000-listing sample)",
-            color_discrete_sequence=["#F58518"],
-        )
-        size_chart.update_layout(showlegend=False, margin=dict(t=50, l=0, r=0, b=0))
-        st.plotly_chart(size_chart, use_container_width=True)
-
+    st.subheader("Split", divider="gray")
     st.caption(
-        "A wide spread at the same apartment size indicates that size alone cannot "
-        "explain rent; location and listing characteristics also matter."
+        f"{dataset['n_train']:,} training rows and {len(y_test):,} test rows — an "
+        f"{int((1 - TEST_SIZE) * 100)}/{int(TEST_SIZE * 100)} split at "
+        f"random_state={RANDOM_STATE}, identical to the modelling notebook, so the "
+        "metrics here are measured on listings no model has seen."
     )
 
+
+# ============================================================================
+# Headline metrics
+# ============================================================================
+with st.container(horizontal=True):
+    st.metric(
+        "Best model",
+        best_model["Model"],
+        delta=f"RMSE {money(best_model['Test RMSE'])}",
+        delta_arrow="off",
+        border=True,
+    )
+    st.metric("Prepared listings", f"{len(prepared_df):,}", border=True)
+    st.metric("Median monthly rent", money(prepared_df[config.TARGET].median()), border=True)
+    st.metric(
+        "Typical error of best model",
+        money(best_model["Test MAE"]),
+        delta=f"R² {best_model['Test R²']:.3f}",
+        delta_arrow="off",
+        border=True,
+    )
+
+comparison_tab, diagnostics_tab, drivers_tab, tuning_tab, data_tab, figures_tab = st.tabs(
+    [
+        "Model comparison",
+        "Predicted vs actual",
+        "What drives rent",
+        "Hyperparameter search",
+        "Data overview",
+        "Saved figures",
+    ]
+)
+
+
+# ---------------------------------------------------------------------------
+# Model comparison
+# ---------------------------------------------------------------------------
+with comparison_tab:
+    with st.container(horizontal=True):
+        for key in MODEL_SPECS:
+            entry = artifacts[key]
+            with st.container(border=True, width=320):
+                st.markdown(f"{entry['icon']} **{entry['label']}**")
+                st.metric("Test RMSE", money(scores[key]["rmse"]))
+                with st.container(horizontal=True):
+                    st.metric("MAE", money(scores[key]["mae"]))
+                    st.metric("R²", f"{scores[key]['r2']:.3f}")
+                if entry["cv_rmse"] is not None:
+                    st.caption(f"Best 5-fold CV RMSE: {money(entry['cv_rmse'])}")
+                else:
+                    st.caption("No hyperparameters to tune.")
+
+    metric_choice = st.segmented_control(
+        "Metric",
+        ["Test RMSE", "Test MAE", "Test R²"],
+        default="Test RMSE",
+        key="comparison_metric",
+    )
+    if metric_choice:
+        lower_is_better = metric_choice != "Test R²"
+        st.altair_chart(
+            alt.Chart(leaderboard)
+            .mark_bar()
+            .encode(
+                x=alt.X(f"{metric_choice}:Q", title=metric_choice),
+                y=alt.Y("Model:N", sort="x" if lower_is_better else "-x", title=None),
+                tooltip=["Model", metric_choice],
+            )
+            .properties(height=200)
+        )
+        st.caption(
+            "Lower is better for RMSE and MAE."
+            if lower_is_better
+            else "R² is the share of test-set price variance the model explains — higher is better."
+        )
+
+    st.dataframe(
+        leaderboard,
+        hide_index=True,
+        column_config={
+            "Test RMSE": st.column_config.NumberColumn(format="$%.0f"),
+            "Test MAE": st.column_config.NumberColumn(format="$%.0f"),
+            "Test R²": st.column_config.NumberColumn(format="%.4f"),
+            "CV RMSE": st.column_config.NumberColumn(
+                format="$%.0f", help="Best cross-validated RMSE reached during tuning"
+            ),
+        },
+    )
+    st.caption(
+        f"**{best_model['Model']}** gives the lowest test RMSE "
+        f"({money(best_model['Test RMSE'])}), so it is the model this project "
+        "recommends for deployment."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Predicted vs actual
+# ---------------------------------------------------------------------------
 with diagnostics_tab:
-    actual = np.asarray(models["y_test"])
-    predicted = np.asarray(linear_model["metrics"]["predictions"])
-    diagnostics_df = pd.DataFrame({
-        "Actual rent": actual,
-        "Predicted rent": predicted,
-        "Residual": actual - predicted,
-    })
-    lower_bound = float(min(actual.min(), predicted.min()))
-    upper_bound = float(max(actual.max(), predicted.max()))
-
-    actual_col, residual_col = st.columns(2)
-    with actual_col:
-        actual_chart = px.scatter(
-            diagnostics_df, x="Actual rent", y="Predicted rent", opacity=0.45,
-            title="Actual versus predicted rent",
-            color_discrete_sequence=["#54A24B"],
-        )
-        actual_chart.add_shape(
-            type="line", x0=lower_bound, y0=lower_bound, x1=upper_bound, y1=upper_bound,
-            line=dict(color="#444", dash="dash"),
-        )
-        actual_chart.update_layout(showlegend=False, margin=dict(t=50, l=0, r=0, b=0))
-        st.plotly_chart(actual_chart, use_container_width=True)
-
-    with residual_col:
-        residual_chart = px.scatter(
-            diagnostics_df, x="Predicted rent", y="Residual", opacity=0.45,
-            title="Residuals versus predicted rent",
-            color_discrete_sequence=["#E45756"],
-        )
-        residual_chart.add_hline(y=0, line_dash="dash", line_color="#444")
-        residual_chart.update_layout(showlegend=False, margin=dict(t=50, l=0, r=0, b=0))
-        st.plotly_chart(residual_chart, use_container_width=True)
-
-    st.info(
-        "Points nearest the dashed line are the most accurate predictions. In the residual plot, "
-        "a random cloud around zero suggests the model is not consistently over- or under-predicting."
+    diagnostic_label = st.segmented_control(
+        "Model",
+        [spec["label"] for spec in MODEL_SPECS.values()],
+        default=MODEL_SPECS["linear"]["label"],
+        key="diagnostic_model",
     )
+    if diagnostic_label:
+        diagnostic_key = next(
+            key for key, spec in MODEL_SPECS.items() if spec["label"] == diagnostic_label
+        )
+        predictions = np.asarray(scores[diagnostic_key]["predictions"])
 
-with coefficients_tab:
-    feature_names = linear_model["preprocessor"].get_feature_names_out()
-    coefficient_df = pd.DataFrame({
-        "Feature": feature_names,
-        "Coefficient": linear_model["model"].coef_,
-    })
-    coefficient_df["Absolute coefficient"] = coefficient_df["Coefficient"].abs()
-    top_coefficients = coefficient_df.nlargest(12, "Absolute coefficient").sort_values("Coefficient")
-    coefficient_chart = px.bar(
-        top_coefficients, x="Coefficient", y="Feature", orientation="h",
-        color="Coefficient", color_continuous_scale="RdBu",
-        title="12 strongest standardized Linear Regression coefficients",
+        left, right = st.columns(2)
+        with left:
+            with st.container(border=True):
+                st.markdown("**Predicted against actual rent**")
+                st.altair_chart(predicted_vs_actual_chart(y_test, predictions))
+        with right:
+            with st.container(border=True):
+                st.markdown("**Residuals against predicted rent**")
+                st.altair_chart(residual_chart(y_test, predictions))
+
+        over_predicted = int((predictions > y_test).sum())
+        st.caption(
+            f"Points on the dashed diagonal are exact predictions. {diagnostic_label} "
+            f"over-predicts {over_predicted / len(y_test):.0%} of test listings; a "
+            "residual cloud centred on zero means the model is not systematically too "
+            f"high or too low. Both charts show a random sample of "
+            f"{min(SCATTER_SAMPLE, len(y_test)):,} test listings."
+        )
+
+
+# ---------------------------------------------------------------------------
+# What drives rent
+# ---------------------------------------------------------------------------
+with drivers_tab:
+    coefficient_column, importance_column = st.columns(2)
+
+    with coefficient_column:
+        with st.container(border=True):
+            st.markdown("**Linear regression coefficients**")
+            coefficients = pd.DataFrame(
+                {
+                    "Feature": artifacts["preprocessor"].get_feature_names_out(),
+                    "Coefficient": artifacts["linear"]["model"].coef_,
+                }
+            )
+            top_coefficients = coefficients.reindex(
+                coefficients["Coefficient"].abs().sort_values(ascending=False).index
+            ).head(12)
+            st.altair_chart(
+                ranked_bar_chart(
+                    top_coefficients, "Coefficient", "Feature", "Coefficient (USD per unit)"
+                )
+            )
+            st.caption(
+                "Numeric inputs are standardised, so magnitudes are comparable. A "
+                "positive coefficient raises predicted rent, holding everything else "
+                "constant."
+            )
+
+    with importance_column:
+        with st.container(border=True):
+            st.markdown("**Tree-model feature importance**")
+            tree_label = st.segmented_control(
+                "Tree model",
+                [MODEL_SPECS["rf"]["label"], MODEL_SPECS["xgb"]["label"]],
+                default=MODEL_SPECS["rf"]["label"],
+                key="importance_model",
+            )
+            tree_key = "xgb" if tree_label == MODEL_SPECS["xgb"]["label"] else "rf"
+            importances = pipeline_importances(artifacts[tree_key]["model"])
+            st.altair_chart(
+                ranked_bar_chart(
+                    importances.nlargest(12, "Importance"), "Importance", "Feature", "Importance"
+                )
+            )
+            st.caption(
+                "Importance is how much each feature reduced prediction error across the "
+                "trees. Unlike a coefficient it has no direction — only strength."
+            )
+
+
+# ---------------------------------------------------------------------------
+# Hyperparameter search
+# ---------------------------------------------------------------------------
+with tuning_tab:
+    tuned = {
+        key: spec
+        for key, spec in MODEL_SPECS.items()
+        if artifacts[key]["cv_results"] is not None
+    }
+    tuned_label = st.segmented_control(
+        "Tuned model",
+        [spec["label"] for spec in tuned.values()],
+        default=MODEL_SPECS["rf"]["label"],
+        key="tuning_model",
     )
-    coefficient_chart.update_layout(coloraxis_showscale=False, margin=dict(t=50, l=0, r=0, b=0))
-    st.plotly_chart(coefficient_chart, use_container_width=True)
+    if tuned_label:
+        tuned_key = next(key for key, spec in tuned.items() if spec["label"] == tuned_label)
+        search = search_frame(artifacts[tuned_key]["cv_results"])
+        parameters = [
+            column
+            for column in search.columns
+            if column not in {"CV RMSE", "Mean fit time (s)"}
+        ]
+
+        st.caption(
+            f"{len(search)} parameter combinations, each scored with 5-fold "
+            f"cross-validation. Best: `{artifacts[tuned_key]['best_params']}` at "
+            f"{money(artifacts[tuned_key]['cv_rmse'])} CV RMSE."
+        )
+
+        focus = st.segmented_control(
+            "Compare by", parameters, default=parameters[0], key=f"tuning_focus_{tuned_key}"
+        )
+        if focus:
+            # Best score reached per value, so one parameter stays readable without
+            # averaging away the combinations that actually won.
+            best_per_value = (
+                search.groupby(focus, as_index=False)["CV RMSE"].min().sort_values("CV RMSE")
+            )
+            st.altair_chart(
+                alt.Chart(best_per_value)
+                .mark_bar()
+                .encode(
+                    x=alt.X("CV RMSE:Q", title="Best cross-validated RMSE (USD)"),
+                    y=alt.Y(f"{focus}:N", sort="x", title=focus),
+                    tooltip=[focus, "CV RMSE"],
+                )
+                .properties(height=max(160, 32 * len(best_per_value)))
+            )
+
+        with st.expander("Full search results", icon=":material/table_chart:"):
+            st.dataframe(
+                search,
+                hide_index=True,
+                column_config={
+                    "CV RMSE": st.column_config.NumberColumn(format="$%.0f"),
+                    "Mean fit time (s)": st.column_config.NumberColumn(format="%.1f"),
+                },
+            )
+
+
+# ---------------------------------------------------------------------------
+# Data overview
+# ---------------------------------------------------------------------------
+with data_tab:
+    with st.container(horizontal=True):
+        st.metric("Listings", f"{len(prepared_df):,}", border=True)
+        st.metric("Features", prepared_df.shape[1] - 1, border=True)
+        st.metric("Missing values", f"{int(prepared_df.isna().sum().sum()):,}", border=True)
+        st.metric("Cities covered", f"{prepared_df['cityname'].nunique():,}", border=True)
+
+    distribution_column, size_column = st.columns(2)
+
+    with distribution_column:
+        with st.container(border=True):
+            st.markdown("**Distribution of monthly rent**")
+            # Binned in pandas rather than Vega so only 50 rows reach the browser.
+            counts, edges = np.histogram(prepared_df[config.TARGET], bins=50)
+            st.bar_chart(
+                pd.DataFrame(
+                    {"Monthly rent (USD)": (edges[:-1] + edges[1:]) / 2, "Listings": counts}
+                ),
+                x="Monthly rent (USD)",
+                y="Listings",
+                height=340,
+            )
+
+    with size_column:
+        with st.container(border=True):
+            st.markdown("**Rent against apartment size**")
+            st.scatter_chart(
+                prepared_df.sample(
+                    min(SCATTER_SAMPLE, len(prepared_df)), random_state=RANDOM_STATE
+                ),
+                x="square_feet",
+                y="price",
+                x_label="Square feet",
+                y_label="Monthly rent (USD)",
+                height=340,
+            )
+
     st.caption(
-        "Positive coefficients raise the predicted rent and negative coefficients lower it, "
-        "holding the other model inputs constant. Numeric inputs are standardized, making their "
-        "coefficient magnitudes easier to compare."
+        "A wide spread of rents at the same apartment size shows that size alone cannot "
+        "explain price — location and listing characteristics matter too, which is why "
+        "cityname is target-encoded rather than dropped."
     )
 
+    with st.expander("Sample of the prepared dataset", icon=":material/table_rows:"):
+        st.dataframe(prepared_df.head(200), hide_index=True)
 
-# ============================================================================
-# MAIN: MODEL EVALUATION VISUALIZATIONS
-# ============================================================================
-st.header("📈 Model Evaluation Visualizations")
 
-viz_tabs = st.tabs([
-    "Linear Regression: Predicted vs Actual",
-    "KNN: k vs CV RMSE",
-    "KNN: Predicted vs Actual",
-    "RF: Hyperparameter Search",
-    "RF: Predicted vs Actual",
-])
-
-with viz_tabs[0]:
-    st.image("outputs/figures/linear_regression_pred_vs_actual.png", caption="Linear Regression predicted vs actual price on the test set")
-
-with viz_tabs[1]:
-    st.image("outputs/figures/knn_k_search.png", caption="KNN Hyperparameter Search — 5-fold CV RMSE by k and weighting")
-
-with viz_tabs[2]:
-    st.image("outputs/figures/knn_pred_vs_actual.png", caption="KNN — Predicted vs Actual Price on Test Set")
-
-with viz_tabs[3]:
-    st.image("outputs/figures/rf_hyperparameter_search.png", caption="Random Forest Hyperparameter Search — 5-fold CV RMSE")
-
-with viz_tabs[4]:
-    st.image("outputs/figures/rf_pred_vs_actual.png", caption="Random Forest — Predicted vs Actual Price on Test Set")
+# ---------------------------------------------------------------------------
+# Saved figures
+# ---------------------------------------------------------------------------
+with figures_tab:
+    saved_figures = sorted(FIGURES_DIR.glob("*.png")) if FIGURES_DIR.exists() else []
+    if not saved_figures:
+        st.caption("No figures found in `outputs/figures/`. Run the notebooks to export them.")
+    else:
+        chosen_figure = st.selectbox(
+            "Figure",
+            saved_figures,
+            format_func=lambda path: path.stem.replace("_", " ").capitalize(),
+        )
+        st.image(str(chosen_figure), caption=chosen_figure.name, width="stretch")
+        st.caption(
+            f"{len(saved_figures)} figures exported by the notebooks into "
+            "`outputs/figures/`. A model missing from this list simply has not been "
+            "re-exported since it was last trained."
+        )
 
 
 # ============================================================================
-# MAIN: Predictor Input (Single input for all models)
+# Prediction
 # ============================================================================
-st.header("🔮 Rent Price Prediction")
-st.markdown("Enter apartment details **once** to get predictions from all models.")
+st.header("Estimate a rent", divider="gray")
+st.caption("Describe a listing once to see what all four saved models predict for it.")
 
-col1, col2 = st.columns(2)
+location_column, property_column = st.columns(2)
 
-with col1:
-    st.subheader("Numeric Features")
-    bathrooms = st.number_input("Bathrooms", min_value=1.0, max_value=9.0, value=1.0, step=0.5)
-    bedrooms = st.number_input("Bedrooms", min_value=0.0, max_value=9.0, value=2.0, step=1.0)
-    square_feet = st.number_input("Square feet", min_value=100, max_value=5000, value=850)
+with location_column:
+    with st.container(border=True):
+        st.markdown("**Location**")
+        state = st.selectbox(
+            "State", sorted(prepared_df["state"].unique()), format_func=state_label
+        )
+        cities = sorted(prepared_df.loc[prepared_df["state"] == state, "cityname"].unique())
+        cityname = st.selectbox("City", cities)
 
-with col2:
-    st.subheader("Categorical Features")
-    state = st.selectbox("State", sorted(df_clean["state"].unique()))
-    cities_in_state = sorted(df_clean.loc[df_clean["state"] == state, "cityname"].unique())
-    cityname = st.selectbox("City", cities_in_state)
+        # Latitude and longitude are model inputs, so they are filled from the
+        # median listing in the chosen city rather than asked for.
+        city_rows = prepared_df[
+            (prepared_df["state"] == state) & (prepared_df["cityname"] == cityname)
+        ]
+        latitude = float(city_rows["latitude"].median())
+        longitude = float(city_rows["longitude"].median())
+        st.caption(
+            f"{len(city_rows):,} listings in {cityname}, {state_label(state)}. Coordinates auto-filled "
+            f"from the city median: {latitude:.4f}, {longitude:.4f}."
+        )
 
-pets_allowed = st.selectbox("Pets allowed", sorted(df_clean["pets_allowed"].unique()))
-has_photo = st.selectbox("Has photo", sorted(df_clean["has_photo"].unique()))
-amenities = st.selectbox(
-    "Amenities profile (pick a common combination from the data, or 'None')",
-    sorted(df_clean["amenities"].value_counts().head(20).index.tolist()) + ["None"],
+with property_column:
+    with st.container(border=True):
+        st.markdown("**Property**")
+        left_input, right_input = st.columns(2)
+        square_feet = left_input.number_input(
+            "Square feet", min_value=100, max_value=5_000, value=850, step=25
+        )
+        bedrooms = right_input.number_input(
+            "Bedrooms", min_value=0.0, max_value=9.0, value=2.0, step=1.0
+        )
+        bathrooms = left_input.number_input(
+            "Bathrooms", min_value=1.0, max_value=9.0, value=1.0, step=0.5
+        )
+        photo_label = right_input.selectbox("Listing photo", list(PHOTO_OPTIONS))
+
+with st.container(border=True):
+    st.markdown("**Amenities and pets**")
+    selected_amenities = st.pills(
+        "Amenities", TOP_AMENITIES, selection_mode="multi", key="amenities"
+    )
+    pets_label = st.segmented_control(
+        "Pets allowed", list(PETS_OPTIONS), default="Not specified", key="pets"
+    )
+
+predict = st.button(
+    "Predict rental price", type="primary", icon=":material/query_stats:", width="stretch"
 )
 
-# lat/long: use the median for the chosen city as a stand-in
-city_rows = df_clean[(df_clean["state"] == state) & (df_clean["cityname"] == cityname)]
-latitude = city_rows["latitude"].median()
-longitude = city_rows["longitude"].median()
-
-# Show lat/long being used
-with st.expander("📍 Coordinates used (auto-filled from city)"):
-    st.write(f"Latitude: {latitude:.4f}")
-    st.write(f"Longitude: {longitude:.4f}")
-
-
-# ============================================================================
-# PREDICTION BUTTON - Single input, both models
-# ============================================================================
-if st.button("Predict Rental Price", type="primary", use_container_width=True):
-    # Build input dataframe
-    input_row = pd.DataFrame([{
-        "bathrooms": bathrooms,
-        "bedrooms": bedrooms,
-        "square_feet": square_feet,
-        "latitude": latitude,
-        "longitude": longitude,
-        "cityname": cityname,
-        "state": state,
-        "amenities": amenities,
-        "pets_allowed": pets_allowed,
-        "has_photo": has_photo,
-    }])
-
-    # Apply same transformation as training
-    input_transformed = transform(input_row)
-
-    # --- Linear Regression and KNN predictions ---
-    # Both use the same scaled preprocessor.
-    XX_input = knn_model["preprocessor"].transform(input_transformed)
-    XX_input_dense = to_dense(XX_input)
-    linear_pred = linear_model["model"].predict(XX_input_dense)[0]
-    knn_pred = knn_model["model"].predict(XX_input_dense)[0]
-
-    # --- RF Prediction ---
-    # RF pipeline includes its own preprocessor
-    rf_pred = rf_model["model"].predict(input_transformed)[0]
-
-    # Display results side by side
-    st.subheader("Predictions")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("### Linear Regression")
-        st.metric("Estimated Monthly Rent", f"${linear_pred:,.0f}")
-        st.caption(f"Baseline model | Test RMSE: ${linear_model['metrics']['rmse']:,.0f}")
-
-    with col2:
-        st.markdown("### 🤖 K-Nearest Neighbors")
-        st.metric("Estimated Monthly Rent", f"${knn_pred:,.0f}")
-        st.caption(
-            f"Model: k={knn_model['best_params']['n_neighbors']}, "
-            f"weights={knn_model['best_params']['weights']} | "
-            f"Test RMSE: ${knn_model['metrics']['rmse']:,.0f}"
-        )
-
-    with col3:
-        st.markdown("### 🌳 Random Forest")
-        st.metric("Estimated Monthly Rent", f"${rf_pred:,.0f}")
-        st.caption(
-            f"Model: n_estimators={rf_model['best_params']['regressor__n_estimators']}, "
-            f"max_depth={rf_model['best_params']['regressor__max_depth']}, "
-            f"min_samples_leaf={rf_model['best_params']['regressor__min_samples_leaf']} | "
-            f"Test RMSE: ${rf_model['metrics']['rmse']:,.0f}"
-        )
-
-    # Comparison
-    st.divider()
-    st.subheader("📊 Comparison")
-    predictions = {
-        "Linear Regression": linear_pred,
-        "KNN": knn_pred,
-        "Random Forest": rf_pred,
-    }
-    prediction_range = max(predictions.values()) - min(predictions.values())
-    average_prediction = sum(predictions.values()) / len(predictions)
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Lowest prediction", f"${min(predictions.values()):,.0f}")
-    with col2:
-        st.metric("Highest prediction", f"${max(predictions.values()):,.0f}")
-    with col3:
-        st.metric("Model range", f"${prediction_range:,.0f}", delta=f"{prediction_range/average_prediction*100:.1f}% of avg")
-
-    if prediction_range / average_prediction < 0.1:
-        st.success("✅ Models agree closely (difference < 10%)")
-    elif prediction_range / average_prediction < 0.2:
-        st.warning("⚠️ Models moderately disagree (difference 10-20%)")
-    else:
-        st.error("❌ Models significantly disagree (difference > 20%)")
-
-    st.caption(
-        "This is a model estimate, not a valuation. It reflects patterns in "
-        "listed features from the training data only. Random Forest typically "
-        "performs better on this dataset (lower RMSE, higher R²)."
+if predict:
+    listing = pd.DataFrame(
+        [
+            {
+                "bathrooms": bathrooms,
+                "bedrooms": bedrooms,
+                "square_feet": square_feet,
+                "latitude": latitude,
+                "longitude": longitude,
+                "cityname": cityname,
+                "state": state,
+                "amenities": ",".join(selected_amenities) if selected_amenities else "None",
+                "pets_allowed": PETS_OPTIONS.get(pets_label, "Not Specified"),
+                "has_photo": PHOTO_OPTIONS[photo_label],
+            }
+        ]
     )
 
+    # Exactly the transformation the models were trained on.
+    listing_transformed = transform(listing)
+    listing_scaled = to_dense(artifacts["preprocessor"].transform(listing_transformed))
 
-# ============================================================================
-# FOOTER
-# ============================================================================
-st.divider()
+    predictions = {}
+    for key, spec in MODEL_SPECS.items():
+        features = listing_scaled if spec["features"] == "scaled" else listing_transformed
+        predictions[spec["label"]] = float(artifacts[key]["model"].predict(features)[0])
+
+    st.subheader("Predictions")
+    with st.container(horizontal=True):
+        for key, spec in MODEL_SPECS.items():
+            with st.container(border=True, width=320):
+                st.markdown(f"{spec['icon']} **{spec['label']}**")
+                st.metric("Estimated monthly rent", money(predictions[spec["label"]]))
+                st.caption(f"Test RMSE {money(scores[key]['rmse'])}")
+
+    values = list(predictions.values())
+    spread = max(values) - min(values)
+    relative_spread = spread / (sum(values) / len(values))
+
+    with st.container(horizontal=True):
+        st.metric("Lowest estimate", money(min(values)), border=True)
+        st.metric("Highest estimate", money(max(values)), border=True)
+        st.metric(
+            "Spread across models",
+            money(spread),
+            delta=f"{relative_spread:.1%} of the average",
+            delta_arrow="off",
+            border=True,
+        )
+        st.metric(
+            f"{best_model['Model']} estimate",
+            money(predictions[best_model["Model"]]),
+            border=True,
+        )
+
+    if relative_spread < 0.10:
+        st.success("The models agree closely on this listing.", icon=":material/check_circle:")
+    elif relative_spread < 0.20:
+        st.warning(
+            "The models disagree moderately — treat the estimate as a range.",
+            icon=":material/warning:",
+        )
+    else:
+        st.error(
+            "The models disagree strongly, which usually means this listing is unlike "
+            "anything in the training data.",
+            icon=":material/priority_high:",
+        )
+
+    st.caption(
+        f"This is a model estimate, not a valuation. **{best_model['Model']}** is the most "
+        f"accurate model on the held-out test set ({money(best_model['Test RMSE'])} RMSE), "
+        "so its figure is the one to quote if you need a single number."
+    )
+
 st.caption(
-    "BMDS2003 Data Science — Compulsory Deliverable | "
-    "Data source: shashanks1202/apartment-rent-data (Kaggle) | "
-    "Models trained on ~99k listings, 80/20 train/test split"
+    "BMDS2003 Data Science — deployment prototype · data: "
+    f"`{config.KAGGLE_DATASET}` (Kaggle) · models loaded from `models/`"
 )
