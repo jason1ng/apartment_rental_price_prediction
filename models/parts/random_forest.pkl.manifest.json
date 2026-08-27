@@ -1,0 +1,25 @@
+{
+  "file": "random_forest.pkl",
+  "bytes": 146251203,
+  "sha256": "630f69468512390dea6ab75fd40112b25b47134580ce553dffc534d465c7d004",
+  "compress": 3,
+  "chunk_mb": 45,
+  "parts": [
+    {
+      "name": "random_forest.pkl.001",
+      "bytes": 47185920
+    },
+    {
+      "name": "random_forest.pkl.002",
+      "bytes": 47185920
+    },
+    {
+      "name": "random_forest.pkl.003",
+      "bytes": 47185920
+    },
+    {
+      "name": "random_forest.pkl.004",
+      "bytes": 4693443
+    }
+  ]
+}
