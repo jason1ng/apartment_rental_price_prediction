@@ -14,7 +14,9 @@ from pathlib import Path
 
 import kagglehub
 from kagglehub import KaggleDatasetAdapter
+import numpy as np
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import GridSearchCV
@@ -112,6 +114,7 @@ def get_trained_models():
             "cv_rmse": -rf_grid.best_score_,
         },
         "df_clean": df_clean,
+        "prepared_df": prepared_df,
         "X_train_transformed": X_train_transformed,
         "X_test_transformed": X_test_transformed,
         "y_test": y_test,
@@ -124,6 +127,7 @@ linear_model = models["linear"]
 knn_model = models["knn"]
 rf_model = models["rf"]
 df_clean = models["df_clean"]
+prepared_df = models["prepared_df"]
 
 # Page title
 st.title("🏠 Apartment Rental Price Predictor")
@@ -189,7 +193,118 @@ with st.sidebar:
 
 
 # ============================================================================
-# MAIN: Visualizations
+# MAIN: EDA AND LINEAR REGRESSION INSIGHTS
+# ============================================================================
+st.header("Data exploration and Linear Regression insights")
+st.caption(
+    "These charts are generated from the prepared dataset and the held-out test set, "
+    "so they help explain both the data and the baseline model."
+)
+
+eda_tab, diagnostics_tab, coefficients_tab = st.tabs([
+    "Explore the data", "Linear Regression diagnostics", "Linear Regression coefficients"
+])
+
+with eda_tab:
+    total_missing = int(prepared_df.isna().sum().sum())
+    median_price = prepared_df["price"].median()
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Prepared listings", f"{len(prepared_df):,}")
+    col2.metric("Features used", prepared_df.shape[1] - 1)
+    col3.metric("Missing values", f"{total_missing:,}")
+    col4.metric("Median monthly rent", f"${median_price:,.0f}")
+
+    price_col, size_col = st.columns(2)
+    with price_col:
+        price_chart = px.histogram(
+            prepared_df, x="price", nbins=50,
+            labels={"price": "Monthly rent (USD)"},
+            title="Distribution of monthly rent",
+            color_discrete_sequence=["#4C78A8"],
+        )
+        price_chart.update_layout(showlegend=False, margin=dict(t=50, l=0, r=0, b=0))
+        st.plotly_chart(price_chart, use_container_width=True)
+
+    with size_col:
+        scatter_sample = prepared_df.sample(min(5_000, len(prepared_df)), random_state=42)
+        size_chart = px.scatter(
+            scatter_sample, x="square_feet", y="price", opacity=0.35,
+            labels={"square_feet": "Square feet", "price": "Monthly rent (USD)"},
+            title="Rent versus apartment size (5,000-listing sample)",
+            color_discrete_sequence=["#F58518"],
+        )
+        size_chart.update_layout(showlegend=False, margin=dict(t=50, l=0, r=0, b=0))
+        st.plotly_chart(size_chart, use_container_width=True)
+
+    st.caption(
+        "A wide spread at the same apartment size indicates that size alone cannot "
+        "explain rent; location and listing characteristics also matter."
+    )
+
+with diagnostics_tab:
+    actual = np.asarray(models["y_test"])
+    predicted = np.asarray(linear_model["metrics"]["predictions"])
+    diagnostics_df = pd.DataFrame({
+        "Actual rent": actual,
+        "Predicted rent": predicted,
+        "Residual": actual - predicted,
+    })
+    lower_bound = float(min(actual.min(), predicted.min()))
+    upper_bound = float(max(actual.max(), predicted.max()))
+
+    actual_col, residual_col = st.columns(2)
+    with actual_col:
+        actual_chart = px.scatter(
+            diagnostics_df, x="Actual rent", y="Predicted rent", opacity=0.45,
+            title="Actual versus predicted rent",
+            color_discrete_sequence=["#54A24B"],
+        )
+        actual_chart.add_shape(
+            type="line", x0=lower_bound, y0=lower_bound, x1=upper_bound, y1=upper_bound,
+            line=dict(color="#444", dash="dash"),
+        )
+        actual_chart.update_layout(showlegend=False, margin=dict(t=50, l=0, r=0, b=0))
+        st.plotly_chart(actual_chart, use_container_width=True)
+
+    with residual_col:
+        residual_chart = px.scatter(
+            diagnostics_df, x="Predicted rent", y="Residual", opacity=0.45,
+            title="Residuals versus predicted rent",
+            color_discrete_sequence=["#E45756"],
+        )
+        residual_chart.add_hline(y=0, line_dash="dash", line_color="#444")
+        residual_chart.update_layout(showlegend=False, margin=dict(t=50, l=0, r=0, b=0))
+        st.plotly_chart(residual_chart, use_container_width=True)
+
+    st.info(
+        "Points nearest the dashed line are the most accurate predictions. In the residual plot, "
+        "a random cloud around zero suggests the model is not consistently over- or under-predicting."
+    )
+
+with coefficients_tab:
+    feature_names = linear_model["preprocessor"].get_feature_names_out()
+    coefficient_df = pd.DataFrame({
+        "Feature": feature_names,
+        "Coefficient": linear_model["model"].coef_,
+    })
+    coefficient_df["Absolute coefficient"] = coefficient_df["Coefficient"].abs()
+    top_coefficients = coefficient_df.nlargest(12, "Absolute coefficient").sort_values("Coefficient")
+    coefficient_chart = px.bar(
+        top_coefficients, x="Coefficient", y="Feature", orientation="h",
+        color="Coefficient", color_continuous_scale="RdBu",
+        title="12 strongest standardized Linear Regression coefficients",
+    )
+    coefficient_chart.update_layout(coloraxis_showscale=False, margin=dict(t=50, l=0, r=0, b=0))
+    st.plotly_chart(coefficient_chart, use_container_width=True)
+    st.caption(
+        "Positive coefficients raise the predicted rent and negative coefficients lower it, "
+        "holding the other model inputs constant. Numeric inputs are standardized, making their "
+        "coefficient magnitudes easier to compare."
+    )
+
+
+# ============================================================================
+# MAIN: MODEL EVALUATION VISUALIZATIONS
 # ============================================================================
 st.header("📈 Model Evaluation Visualizations")
 
