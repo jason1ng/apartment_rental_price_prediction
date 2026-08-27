@@ -58,19 +58,18 @@ so it is **not** committed. It lives in the repo as compressed parts under
 `models/parts/`, and is rebuilt locally:
 
 ```bash
-python -m src.model_parts status     # which models fit on GitHub, which are split
-python -m src.model_parts join --all # rebuild the .pkl files from their parts
+python -m src.model_parts join   # rebuild models/random_forest.pkl from its parts
 ```
 
-The Streamlit app calls `join` itself the first time it needs a missing model,
-so `streamlit run app/streamlit_app.py` works straight after a clone. Run `join`
+The Streamlit app runs `join` itself on startup when the file is missing, so
+`streamlit run app/streamlit_app.py` works straight after a clone. Run `join`
 manually before opening `notebooks/03_modelling.ipynb`, which loads the `.pkl`
-files directly.
+directly.
 
-After retraining a large model, re-split it before committing:
+After retraining the forest, re-split it before committing:
 
 ```bash
-python -m src.model_parts split --all
+python -m src.model_parts split
 ```
 
 Rebuilt files are compressed (544 MB → 140 MB) and checksum-verified on join;
