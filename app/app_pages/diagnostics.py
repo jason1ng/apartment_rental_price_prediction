@@ -207,6 +207,7 @@ with drivers_tab:
             )
             tree_key = "xgb" if tree_label == MODEL_SPECS["xgb"]["label"] else "rf"
             importances = pipeline_importances(artifacts[tree_key]["model"])
+            st.markdown('<div class="importance-transition"></div>', unsafe_allow_html=True)
             st.altair_chart(
                 ranked_bar_chart(
                     importances.nlargest(12, "Importance"), "Importance", "Feature", "Importance"

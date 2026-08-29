@@ -47,11 +47,12 @@ with st.container(border=True):
         "prediction page uses for its headline estimate."
     )
 
-with st.container(horizontal=True):
-    for _, row in leaderboard.iterrows():
+model_columns = st.columns(4, gap="medium")
+for column, (_, row) in zip(model_columns, leaderboard.iterrows()):
+    with column:
         key = model_key_for(row["Model"])
         spec = MODEL_SPECS[key]
-        with st.container(border=True, width=300):
+        with st.container(border=True):
             leader = row["Model"] == best["Model"]
             st.markdown(
                 f"{spec['icon']} **{spec['label']}**"
