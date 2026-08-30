@@ -517,21 +517,8 @@ with correlation_tab:
             st.altair_chart(
                 ranked_bar_chart(
                     with_price, "Correlation with price", "Feature", "Pearson r", "redblue"
-                )
+                ).properties(height=320)  # match the correlation matrix's fixed height
             )
-
-    strongest = with_price.reindex(
-        with_price["Correlation with price"].abs().sort_values(ascending=False).index
-    ).iloc[0]
-
-    st.caption(
-        f"**Reading it:** `{strongest['Feature']}` is the strongest linear correlate of price "
-        f"(r = {strongest['Correlation with price']:.2f}). Every correlation here is moderate at "
-        "best, and that is the central finding of the EDA: no single numeric feature explains "
-        "rent linearly. Price depends on location — a categorical, highly non-linear effect that "
-        "Pearson correlation cannot capture — which is why the tree-based models are expected to "
-        "beat linear regression, and why the modelling page confirms they do."
-    )
 
     with st.expander("Descriptive statistics", icon=":material/functions:"):
         st.dataframe(
