@@ -75,6 +75,9 @@ st.markdown(
     [data-testid="stNavigation"] a:hover, [data-testid="stNavigation"] a[aria-current="page"] {{ background: {_nav_hover}; }}
     div[data-testid="stVerticalBlockBorderWrapper"] {{ margin: .35rem 0; padding: .25rem; }}
     div[data-testid="stMetric"] {{ padding: .9rem 1rem; }}
+    /* Figures that sit in a sentence rather than a metric card — the predictor's
+       "Likely range" pair — lifted above body text so the numbers read first. */
+    .range-value {{ font-size: 1.25rem; font-weight: 700; letter-spacing: -.01em; }}
     [data-testid="stHorizontalBlock"] {{ gap: 1.25rem; }}
     div[data-testid="stVerticalBlockBorderWrapper"]:hover,
     div[data-testid="stMetric"]:hover {{ background: {_glass_hover_surface}; border-color: {_glass_hover_border}; transform: translateY(-2px); }}

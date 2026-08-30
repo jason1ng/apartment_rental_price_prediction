@@ -1,3 +1,9 @@
+[server]
+# Serves app/static/ (the folder beside the streamlit_app.py entrypoint) at
+# /app/static/. The property viewer's three.js runtime loads from there as an
+# ES module instead of being inlined into the page on every rerun.
+enableStaticServing = true
+
 [theme]
 # Only [theme] (not [theme.light]/[theme.dark]) locks the app to this single
 # mode — no dark option appears in the app's settings menu, and native

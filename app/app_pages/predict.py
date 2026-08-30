@@ -61,7 +61,10 @@ with st.container(border=True):
     with answer_column:
         note_metric(f"Estimated monthly rent · {best['Model']}", money(headline), f"± {money_md(margin)} typical error")
     with range_column:
-        st.markdown(f"Likely range: **{money_md(headline - margin)} – {money_md(headline + margin)}**")
+        st.markdown(
+            f'Likely range: <span class="range-value">{money_md(headline - margin)} – {money_md(headline + margin)}</span>',
+            unsafe_allow_html=True,
+        )
         st.caption(f"Based on {len(city_rows):,} listings in {cityname}.")
 
 st.markdown("**What each model predicts for this listing**")
