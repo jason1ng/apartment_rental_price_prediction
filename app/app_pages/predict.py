@@ -36,7 +36,8 @@ with form_column:
 
 city_rows = prepared_df[(prepared_df["state"] == selected_state) & (prepared_df["cityname"] == cityname)]
 latitude, longitude = float(city_rows["latitude"].median()), float(city_rows["longitude"].median())
-listing = pd.DataFrame([{"bathrooms": bathrooms, "bedrooms": bedrooms, "square_feet": square_feet, "latitude": latitude, "longitude": longitude, "cityname": cityname, "state": selected_state, "amenities": ",".join(selected_amenities) if selected_amenities else "None", "pets_allowed": PETS_OPTIONS.get(pets_label, "Not Specified"), "has_photo": PHOTO_OPTIONS[photo_label]}])
+pets_allowed = PETS_OPTIONS.get(pets_label, "Not Specified")
+listing = pd.DataFrame([{"bathrooms": bathrooms, "bedrooms": bedrooms, "square_feet": square_feet, "latitude": latitude, "longitude": longitude, "cityname": cityname, "state": selected_state, "amenities": ",".join(selected_amenities) if selected_amenities else "None", "pets_allowed": pets_allowed, "has_photo": PHOTO_OPTIONS[photo_label]}])
 listing_transformed = transform(listing)
 listing_scaled = to_dense(artifacts["preprocessor"].transform(listing_transformed))
 predictions = {key: float(artifacts[key]["model"].predict(listing_scaled if spec["features"] == "scaled" else listing_transformed)[0]) for key, spec in MODEL_SPECS.items()}
@@ -52,6 +53,7 @@ with viewer_column:
             bathrooms=bathrooms,
             square_feet=square_feet,
             predicted_rent=headline,
+            pets_allowed=pets_allowed,
         )
 
 with st.container(border=True):
