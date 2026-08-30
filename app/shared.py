@@ -269,12 +269,19 @@ def search_frame(cv_results: dict) -> pd.DataFrame:
     return frame.sort_values("CV RMSE").reset_index(drop=True)
 
 
+def clean_feature_name(name: str) -> str:
+    """Turn a ``ColumnTransformer``-prefixed feature name into a readable label."""
+    _, _, base = name.partition("__")
+    base = (base or name).replace("_", " ")
+    return base[:1].upper() + base[1:]
+
+
 def pipeline_importances(model) -> pd.DataFrame:
     """Feature importances from a fitted preprocessing + regressor pipeline."""
     names = model.named_steps["preprocess"].get_feature_names_out()
     return pd.DataFrame(
         {
-            "Feature": names,
+            "Feature": [clean_feature_name(name) for name in names],
             "Importance": model.named_steps["regressor"].feature_importances_,
         }
     )
@@ -369,7 +376,7 @@ def ranked_bar_chart(
         .mark_bar()
         .encode(
             x=alt.X(f"{value}:Q", title=title),
-            y=alt.Y(f"{label}:N", sort="-x", title=None),
+            y=alt.Y(f"{label}:N", sort="-x", title=None, axis=alt.Axis(labelLimit=0)),
             color=alt.Color(f"{value}:Q", scale=alt.Scale(scheme=scheme), legend=None),
             tooltip=[label, value],
         )

@@ -15,6 +15,7 @@ import streamlit as st
 from shared import (
     MODEL_SPECS,
     app_state,
+    clean_feature_name,
     escape_dollars,
     model_key_for,
     money,
@@ -171,59 +172,50 @@ with accuracy_tab:
 # What drives rent
 # ---------------------------------------------------------------------------
 with drivers_tab:
-    coefficient_column, importance_column = st.columns(2)
+    # Stacked full-width rather than side by side — a half-width column
+    # truncates the sklearn feature names (e.g. `numeric__square_feet`).
+    with st.container(border=True):
+        st.markdown("**Linear regression coefficients**")
+        coefficients = pd.DataFrame(
+            {
+                "Feature": [
+                    clean_feature_name(name)
+                    for name in artifacts["preprocessor"].get_feature_names_out()
+                ],
+                "Coefficient": artifacts["linear"]["model"].coef_,
+            }
+        )
+        top_coefficients = coefficients.reindex(
+            coefficients["Coefficient"].abs().sort_values(ascending=False).index
+        ).head(12)
+        st.altair_chart(
+            ranked_bar_chart(
+                top_coefficients, "Coefficient", "Feature", "Coefficient (USD per unit)"
+            )
+        )
+        st.caption(
+            "Numeric inputs are standardised, so magnitudes are comparable across features. "
+            "A positive coefficient raises predicted rent, holding everything else constant; "
+            "a negative one lowers it."
+        )
 
-    with coefficient_column:
-        with st.container(border=True):
-            st.markdown("**Linear regression coefficients**")
-            coefficients = pd.DataFrame(
-                {
-                    "Feature": artifacts["preprocessor"].get_feature_names_out(),
-                    "Coefficient": artifacts["linear"]["model"].coef_,
-                }
+    with st.container(border=True):
+        st.markdown("**Tree-model feature importance**")
+        tree_label = st.segmented_control(
+            "Tree model",
+            [MODEL_SPECS["rf"]["label"], MODEL_SPECS["xgb"]["label"]],
+            default=MODEL_SPECS["rf"]["label"],
+            key="importance_model",
+        )
+        tree_key = "xgb" if tree_label == MODEL_SPECS["xgb"]["label"] else "rf"
+        importances = pipeline_importances(artifacts[tree_key]["model"])
+        st.markdown('<div class="importance-transition"></div>', unsafe_allow_html=True)
+        st.altair_chart(
+            ranked_bar_chart(
+                importances.nlargest(12, "Importance"), "Importance", "Feature", "Importance"
             )
-            top_coefficients = coefficients.reindex(
-                coefficients["Coefficient"].abs().sort_values(ascending=False).index
-            ).head(12)
-            st.altair_chart(
-                ranked_bar_chart(
-                    top_coefficients, "Coefficient", "Feature", "Coefficient (USD per unit)"
-                )
-            )
-            st.caption(
-                "Numeric inputs are standardised, so magnitudes are comparable across features. "
-                "A positive coefficient raises predicted rent, holding everything else constant; "
-                "a negative one lowers it."
-            )
-
-    with importance_column:
-        with st.container(border=True):
-            st.markdown("**Tree-model feature importance**")
-            tree_label = st.segmented_control(
-                "Tree model",
-                [MODEL_SPECS["rf"]["label"], MODEL_SPECS["xgb"]["label"]],
-                default=MODEL_SPECS["rf"]["label"],
-                key="importance_model",
-            )
-            tree_key = "xgb" if tree_label == MODEL_SPECS["xgb"]["label"] else "rf"
-            importances = pipeline_importances(artifacts[tree_key]["model"])
-            st.markdown('<div class="importance-transition"></div>', unsafe_allow_html=True)
-            st.altair_chart(
-                ranked_bar_chart(
-                    importances.nlargest(12, "Importance"), "Importance", "Feature", "Importance"
-                )
-            )
-            st.caption(
-                "Importance is how much each feature reduced prediction error across the trees. "
-                "Unlike a coefficient it has no direction — only strength."
-            )
-
-    top_tree_feature = importances.nlargest(1, "Importance").iloc[0]
-    st.caption(
-        f"**What drives rent:** `{top_tree_feature['Feature']}` carries "
-        f"{top_tree_feature['Importance']:.0%} of the total importance in the tree model — "
-        "location-derived features (the target-encoded city, latitude and longitude) dominate "
-        "both views, ahead of size, and well ahead of bedrooms, bathrooms and every amenity. "
-        "That matches the EDA, where rents varied more between states than across any property "
-        "feature."
-    )
+        )
+        st.caption(
+            "Importance is how much each feature reduced prediction error across the trees. "
+            "Unlike a coefficient it has no direction — only strength."
+        )
