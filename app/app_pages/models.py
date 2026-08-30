@@ -62,7 +62,6 @@ for column, (_, row) in zip(model_columns, leaderboard.iterrows()):
             with st.container(horizontal=True):
                 st.metric("MAE", money(row["Test MAE"]))
                 st.metric("R²", f"{row['Test R²']:.3f}")
-            st.caption(spec["note"])
 
 
 # ---------------------------------------------------------------------------

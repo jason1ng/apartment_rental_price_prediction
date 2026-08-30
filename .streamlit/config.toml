@@ -1,0 +1,13 @@
+[theme]
+# Only [theme] (not [theme.light]/[theme.dark]) locks the app to this single
+# mode — no dark option appears in the app's settings menu, and native
+# widgets/charts (buttons, dataframes, the "streamlit" Altair theme) always
+# render light regardless of the OS/browser theme. A warm cream palette with
+# a terracotta accent, matching the glass
+# palette in streamlit_app.py's custom CSS.
+base = "light"
+primaryColor = "#c15f3c"
+backgroundColor = "#faf9f5"
+secondaryBackgroundColor = "#f0eee6"
+textColor = "#3d3929"
+borderColor = "#e3ddce"

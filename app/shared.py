@@ -54,28 +54,24 @@ MODEL_SPECS = {
         "file": "linear_regression.pkl",
         "features": "scaled",
         "icon": ":material/show_chart:",
-        "note": "Interpretable baseline — assumes rent is a straight-line function of the features.",
     },
     "knn": {
         "label": "K-nearest neighbours",
         "file": "knn.pkl",
         "features": "scaled",
         "icon": ":material/scatter_plot:",
-        "note": "Prices a listing like the k most similar listings it has already seen.",
     },
     "rf": {
         "label": "Random forest",
         "file": "random_forest.pkl",
         "features": "pipeline",
         "icon": ":material/park:",
-        "note": "Averages many decision trees — captures interactions a linear model cannot.",
     },
     "xgb": {
         "label": "XGBoost",
         "file": "xgboost.pkl",
         "features": "pipeline",
         "icon": ":material/bolt:",
-        "note": "Gradient boosting — trees added in sequence, each correcting the last.",
     },
 }
 
@@ -382,16 +378,39 @@ def ranked_bar_chart(
 
 
 def heatmap_chart(
-    long: pd.DataFrame, x: str, y: str, value: str, scheme: str, number_format: str = ".2f"
+    long: pd.DataFrame,
+    x: str,
+    y: str,
+    value: str,
+    scheme: str,
+    number_format: str = ".2f",
+    diverging: bool = False,
 ) -> alt.LayerChart:
-    """Rect heatmap with the value printed in each cell."""
+    """Rect heatmap with the value printed in each cell.
+
+    A fixed text color disappears on half the color scale (e.g. black text on
+    a dark-blue cell), and that's invisible in either light or dark mode since
+    the cell fill comes from the Vega color scheme, not the app theme. So each
+    label switches to white on the scale's dark/saturated end and a dark slate
+    on its light end, computed from where the cell's value falls in the data's
+    own range — ``diverging=True`` for a scheme centered on zero (correlations),
+    the default for a scheme that darkens monotonically (counts, magnitudes).
+    """
     base = alt.Chart(long).encode(x=alt.X(f"{x}:N", title=None), y=alt.Y(f"{y}:N", title=None))
     cells = base.mark_rect().encode(
         color=alt.Color(f"{value}:Q", scale=alt.Scale(scheme=scheme), title=value),
         tooltip=[x, y, value],
     )
-    labels = base.mark_text(fontSize=11, color="black").encode(
-        text=alt.Text(f"{value}:Q", format=number_format)
+    vmin, vmax = float(long[value].min()), float(long[value].max())
+    if diverging:
+        span = max(abs(vmin), abs(vmax)) or 1.0
+        contrast_expr = f"abs(datum['{value}']) / {span} > 0.55"
+    else:
+        span = (vmax - vmin) or 1.0
+        contrast_expr = f"(datum['{value}'] - {vmin}) / {span} > 0.55"
+    labels = base.mark_text(fontSize=11).encode(
+        text=alt.Text(f"{value}:Q", format=number_format),
+        color=alt.condition(contrast_expr, alt.value("white"), alt.value("#1f2328")),
     )
     return (cells + labels).properties(height=320)
 

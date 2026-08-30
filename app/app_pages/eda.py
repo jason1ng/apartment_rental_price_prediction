@@ -451,7 +451,7 @@ with correlation_tab:
         with st.container(border=True):
             st.markdown("**Pearson correlation matrix**")
             st.altair_chart(
-                heatmap_chart(correlations, "Feature 2", "Feature 1", "r", "redblue")
+                heatmap_chart(correlations, "Feature 2", "Feature 1", "r", "redblue", diverging=True)
             )
 
     with ranking_column:
