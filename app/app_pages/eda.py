@@ -205,10 +205,7 @@ with location_tab:
         st.altair_chart(spread_chart(city_stats, "City", "Monthly rent (USD)"))
         st.caption(
             "Drawn from the 20 cities with the most listings, so every median rests on a large "
-            "sample. City-level variation this large is exactly why `cityname` is target-encoded "
-            "rather than dropped: with ~2,975 unique cities, one-hot encoding would explode the "
-            "feature space, but discarding the column would throw away the strongest signal in "
-            "the dataset."
+            "sample."
         )
 
     with st.container(border=True):
@@ -276,8 +273,7 @@ with location_tab:
             f"A random sample of {len(map_sample):,} listings, coloured by rent quartile — blue "
             f"is the cheapest quarter (under {money_md(quartiles[0])}), red the most expensive "
             f"(over {money_md(quartiles[2])}). Expensive listings concentrate on the coasts and in "
-            "major metros, which is the geographic pattern `latitude` and `longitude` give the "
-            "tree models to split on."
+            "major metros."
         )
 
 
@@ -327,7 +323,7 @@ with property_tab:
                     "Bedrooms",
                     "Monthly rent (USD)",
                     sort=alt.EncodingSortField("bedrooms", order="ascending"),
-                )
+                ).properties(height=340)  # match "Rent against apartment size" in this row
             )
             st.caption(
                 "Median rent rises with every bedroom added, but the interquartile ranges overlap "
@@ -376,7 +372,7 @@ with property_tab:
                     tooltip=["Bedrooms", "Median", "Q1", "Q3", "Listings"],
                     color=alt.Color("Median:Q", scale=alt.Scale(scheme="blues"), legend=None),
                 )
-                .properties(height=260)
+                .properties(height=320)  # match "Which bed/bath configurations exist" in this row
             )
             st.caption(
                 "Size and bedroom count move together, which is why `squarefeet_per_room` was "
@@ -437,7 +433,7 @@ with listing_tab:
     count_column, pets_column, photo_column = st.columns(3)
 
     with count_column:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown("**Rent by amenity count**")
             amenity_string = df["amenities"].fillna("None").astype(str)
             counted = df.assign(
@@ -454,35 +450,34 @@ with listing_tab:
                     "Amenities",
                     "Monthly rent (USD)",
                     sort=alt.EncodingSortField("amenity_count", order="ascending"),
-                )
+                ).properties(height=270)
             )
-            st.caption(
-                "Rent rises steadily with the number of amenities advertised — the justification "
-                "for engineering `amenity_count` alongside the individual amenity flags."
-            )
+            st.caption("Rent rises steadily with the number of amenities advertised.")
 
     with pets_column:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown("**Rent by pet policy**")
             pet_stats = spread_frame(df, "pets_allowed").rename(
                 columns={"pets_allowed": "Pet policy"}
             )
-            st.altair_chart(spread_chart(pet_stats, "Pet policy", "Monthly rent (USD)"))
+            st.altair_chart(
+                spread_chart(pet_stats, "Pet policy", "Monthly rent (USD)").properties(height=270)
+            )
             st.caption(
-                "'Cats' and 'Cats,Dogs' both mean cats are allowed, but one-hot encoding treats "
-                "them as unrelated categories — hence the `allows_cats` / `allows_dogs` flags, "
-                "which share that signal explicitly."
+                "Pet policy barely moves rent — medians sit within a few hundred dollars of each "
+                "other, aside from the small 126-listing 'dogs only' group."
             )
 
     with photo_column:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown("**Rent by photo status**")
             photo_stats = spread_frame(df, "has_photo").rename(columns={"has_photo": "Photo"})
-            st.altair_chart(spread_chart(photo_stats, "Photo", "Monthly rent (USD)"))
+            st.altair_chart(
+                spread_chart(photo_stats, "Photo", "Monthly rent (USD)").properties(height=270)
+            )
             st.caption(
-                "Listings with a full photo advertise higher rents. This is a property of the "
-                "listing, not the apartment — better-resourced agents both photograph well and "
-                "manage more expensive stock."
+                "No-photo listings have the highest median rent, full-photo sits in the middle, "
+                "and thumbnail-only is cheapest."
             )
 
 
@@ -500,7 +495,7 @@ with correlation_tab:
         with st.container(border=True):
             st.markdown("**Pearson correlation matrix**")
             st.altair_chart(
-                heatmap_chart(correlations, "Feature 2", "Feature 1", "r", "redblue", diverging=True)
+                heatmap_chart(correlations, "Feature 2", "Feature 1", "r", "redblue")
             )
 
     with ranking_column:

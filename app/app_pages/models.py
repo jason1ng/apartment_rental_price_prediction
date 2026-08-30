@@ -76,12 +76,18 @@ metric_choice = st.segmented_control(
 if metric_choice:
     lower_is_better = metric_choice != "Test R²"
     with st.container(border=True):
+        # "K-nearest neighbours" truncates on the bar chart's y-axis labels —
+        # shortened just here (the axis), while the tooltip keeps the full name.
+        chart_frame = leaderboard.copy()
+        chart_frame["Model (short)"] = chart_frame["Model"].replace(
+            {"K-nearest neighbours": "KNN"}
+        )
         st.altair_chart(
-            alt.Chart(leaderboard)
+            alt.Chart(chart_frame)
             .mark_bar()
             .encode(
                 x=alt.X(f"{metric_choice}:Q", title=metric_choice),
-                y=alt.Y("Model:N", sort="x" if lower_is_better else "-x", title=None),
+                y=alt.Y("Model (short):N", sort="x" if lower_is_better else "-x", title=None),
                 color=alt.condition(
                     alt.datum.Model == best["Model"],
                     alt.value("#54a24b"),
