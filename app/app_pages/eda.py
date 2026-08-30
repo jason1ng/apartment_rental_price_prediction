@@ -13,6 +13,7 @@ the data alone, before any model is fitted.
 import altair as alt
 import numpy as np
 import pandas as pd
+import pydeck as pdk
 import streamlit as st
 
 from shared import (
@@ -213,16 +214,64 @@ with location_tab:
     with st.container(border=True):
         st.markdown("**Where the listings are**")
         map_sample = df.sample(min(SCATTER_SAMPLE, len(df)), random_state=RANDOM_STATE)[
-            ["latitude", "longitude", "price"]
+            ["latitude", "longitude", "price", "cityname", "state", "bedrooms", "bathrooms", "square_feet"]
         ].copy()
         # Bucketed rather than continuous: a colour ramp over a right-skewed
         # price column is unreadable — nearly every point would land at one end.
         quartiles = map_sample["price"].quantile([0.25, 0.5, 0.75]).tolist()
-        colours = ["#a6cee3", "#5b9bd5", "#f58518", "#e45756"]
+        colours = [[166, 206, 227, 190], [91, 155, 213, 190], [245, 133, 24, 190], [228, 87, 86, 190]]
         map_sample["colour"] = [
             colours[int(np.searchsorted(quartiles, value))] for value in map_sample["price"]
         ]
-        st.map(map_sample, color="colour", size=120)
+        map_sample["Rent"] = map_sample["price"].map(money)
+
+        # show listing details on dot-hover
+        listings_layer = pdk.Layer(
+            "ScatterplotLayer",
+            data=map_sample,
+            id="listings",
+            get_position=["longitude", "latitude"],
+            get_fill_color="colour",
+            get_radius=18_000,
+            radius_min_pixels=3,
+            radius_max_pixels=9,
+            pickable=True,
+            auto_highlight=True,
+        )
+        view_state = pdk.ViewState(
+            latitude=float(map_sample["latitude"].mean()),
+            longitude=float(map_sample["longitude"].mean()),
+            zoom=3,
+        )
+        event = st.pydeck_chart(
+            pdk.Deck(
+                layers=[listings_layer],
+                initial_view_state=view_state,
+                map_style=None,  # follow the app's (light-locked) Streamlit theme
+                tooltip={
+                    "html": "<b>{Rent}</b><br/>{cityname}, {state}<br/>{bedrooms} bed · {bathrooms} bath",
+                },
+            ),
+            on_select="rerun",
+            selection_mode="single-object",
+            height=440,
+        )
+
+        selected = event.selection.objects.get("listings", [])
+        if selected:
+            listing = selected[0]
+            detail_columns = st.columns(4)
+            with detail_columns[0]:
+                note_metric("Rent", money(listing["price"]), f"{listing['cityname']}, {listing['state']}", border=True)
+            with detail_columns[1]:
+                note_metric("Bedrooms", f"{listing['bedrooms']:.0f}", "beds", border=True)
+            with detail_columns[2]:
+                note_metric("Bathrooms", f"{listing['bathrooms']:.1f}", "baths", border=True)
+            with detail_columns[3]:
+                note_metric("Square feet", f"{listing['square_feet']:,.0f}", "sq ft", border=True)
+        else:
+            st.caption("Click a dot to see that listing's rent and details.")
+
         st.caption(
             f"A random sample of {len(map_sample):,} listings, coloured by rent quartile — blue "
             f"is the cheapest quarter (under {money_md(quartiles[0])}), red the most expensive "
