@@ -129,7 +129,17 @@ with data_tab:
 # Figures
 # ---------------------------------------------------------------------------
 with figures_tab:
-    saved_figures = sorted(FIGURES_DIR.glob("*.png")) if FIGURES_DIR.exists() else []
+    # outputs/figures/ also holds per-model diagnostic exports (knn_*, rf_*,
+    # xgb_*, ...) from the modelling notebook — those belong with the Models
+    # and Diagnostics pages, which already render live equivalents of them.
+    # This tab sticks to the numbered cleaning/transformation figures that
+    # actually match what the rest of this page (Pipeline, Prepared dataset)
+    # covers.
+    saved_figures = (
+        sorted(path for path in FIGURES_DIR.glob("*.png") if path.stem[:1].isdigit())
+        if FIGURES_DIR.exists()
+        else []
+    )
 
     if not saved_figures:
         st.caption(
@@ -143,7 +153,6 @@ with figures_tab:
         )
         st.image(str(chosen_figure), caption=chosen_figure.name, width="stretch")
         st.caption(
-            f"{len(saved_figures)} figures exported by the notebooks into `outputs/figures/`. "
-            "A model missing from this list simply has not been re-exported since it was "
-            "last trained."
+            f"{len(saved_figures)} cleaning/transformation figures exported by the notebooks "
+            "into `outputs/figures/`."
         )
