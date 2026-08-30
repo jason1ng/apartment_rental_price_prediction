@@ -13,11 +13,7 @@ for path in (str(REPO_ROOT), str(APP_DIR)):
 
 st.set_page_config(page_title="Apartment rent predictor", page_icon=":material/home_work:", layout="wide")
 
-# Keep the existing Streamlit look, but give each section enough room to scan.
-# The app is locked to a light look on purpose (see .streamlit/config.toml, which
-# defines only [theme] so users can't switch to dark from the settings menu) —
-# a warm cream palette (Claude's own light-mode look) with a terracotta accent,
-# instead of pure white/gray.
+
 _app_bg = (
     "radial-gradient(circle at 12% 8%, #f3e2ce 0, transparent 34%),"
     "radial-gradient(circle at 88% 18%, #f0e6da 0, transparent 30%),"
@@ -30,7 +26,7 @@ _glass_hover_surface = "rgba(255, 252, 245, .82)"
 _glass_hover_border = "rgba(61, 53, 40, .20)"
 _header_bg = "rgba(250, 246, 237, .70)"
 _nav_hover = "rgba(61, 53, 40, .07)"
-_input_bg = "rgba(255, 253, 248, .75)"
+_input_bg = "#f0eee6"
 _focus_border = "rgba(193, 95, 60, .55)"
 _focus_shadow = "rgba(193, 95, 60, .18)"
 
@@ -110,7 +106,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-from shared import RANDOM_FOREST_PATH, RAW_CSV, config, missing_files  # noqa: E402
+from shared import RANDOM_FOREST_PATH, RAW_CSV, missing_files  # noqa: E402
 from src.model_parts import join_model, parts_available  # noqa: E402
 
 if not RANDOM_FOREST_PATH.exists() and parts_available():
@@ -137,4 +133,3 @@ page = st.navigation([
 
 st.title("Apartment rental price predictor")
 page.run()
-st.caption(f"Data: `{config.KAGGLE_DATASET}` (Kaggle) · models loaded from `models`")
